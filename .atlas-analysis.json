@@ -1,0 +1,87 @@
+{
+  "projectType": "saas",
+  "projectName": "PlanningSup",
+  "projectDescription": "A modern university calendar application with offline support, multi-platform availability, and ICS-to-events conversion.",
+  "theme": "palm",
+  "primaryColor": "#3b82f6",
+  "lightColor": "#60a5fa",
+  "darkColor": "#2563eb",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "User Guide",
+            "pages": [
+              "guide/calendar-views",
+              "guide/customization",
+              "guide/offline-mode",
+              "guide/sync-preferences"
+            ]
+          },
+          {
+            "group": "Platforms",
+            "pages": [
+              "platforms/web-app",
+              "platforms/browser-extension",
+              "platforms/desktop-mobile"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Developers",
+        "groups": [
+          {
+            "group": "Setup",
+            "pages": [
+              "developers/self-hosting",
+              "developers/docker-deployment",
+              "developers/environment-variables"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "developers/contributing",
+              "developers/adding-universities",
+              "developers/architecture"
+            ]
+          },
+          {
+            "group": "API Reference",
+            "pages": [
+              "api/overview",
+              "api/plannings",
+              "api/events",
+              "api/authentication"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "PWA with offline support and multi-platform availability (web, desktop, mobile, browser extension)",
+    "Real-time calendar views (day/week/month) with event filtering and teacher highlighting",
+    "User authentication with preferences sync across devices",
+    "ICS calendar parsing and automatic refresh with PostgreSQL backup",
+    "Multi-university support with easy addition of new institutions",
+    "Customizable color schemes by category or subject with light/dark themes"
+  ],
+  "publicApiSurface": [
+    "GET /api/ping - Health check endpoint",
+    "GET /api/plannings - List all available university plannings",
+    "GET /api/plannings/:fullId?events=true - Get specific planning with events",
+    "GET /api/plannings/:fullId?events=true&onlyDb=true - Get planning from database only",
+    "POST /api/ops/plannings - Refresh planning cache (requires x-ops-token)",
+    "GET /api/auth/* - BetterAuth authentication endpoints",
+    "POST /api/auth/* - BetterAuth authentication endpoints",
+    "GET /api/auth/auto-redirect/:provider - OAuth auto-redirect for Tauri/extension"
+  ]
+}
