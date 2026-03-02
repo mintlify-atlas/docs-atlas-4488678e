@@ -1,0 +1,411 @@
+---
+title: Authentication API
+description: OAuth, passkeys, and session management with BetterAuth
+---
+
+The Authentication API provides user authentication and preferences synchronization using BetterAuth. Authentication features are available when `AUTH_ENABLED=true`.
+
+<Info>
+Authentication is optional. Planning data is accessible without authentication. Auth enables user preferences sync across devices.
+</Info>
+
+## Authentication methods
+
+<CardGroup cols={2}>
+  <Card title="OAuth providers" icon="brands">
+    Sign in with Discord or GitHub
+  </Card>
+  <Card title="Passkeys" icon="fingerprint">
+    WebAuthn/FIDO2 passwordless authentication
+  </Card>
+</CardGroup>
+
+## BetterAuth endpoints
+
+All authentication endpoints are handled by BetterAuth at `/api/auth/*`:
+
+### Session management
+
+<ParamField path="GET /api/auth/session" type="endpoint">
+  Get current user session.
+  
+  **Response:**
+  ```json
+  {
+    "user": {
+      "id": "user-123",
+      "email": "user@example.com",
+      "name": "John Doe",
+      "image": "https://...",
+      "theme": "dark",
+      "highlightTeacher": true,
+      "showWeekends": false,
+      "mergeDuplicates": true,
+      "blocklist": ["exam", "test"],
+      "plannings": ["enscr.elevesing1iereannee"],
+      "customGroups": "[...]",
+      "colors": "{...}",
+      "prefsMeta": "{...}"
+    },
+    "session": {
+      "id": "session-456",
+      "userId": "user-123",
+      "expiresAt": "2026-04-01T00:00:00.000Z"
+    }
+  }
+  ```
+</ParamField>
+
+<ParamField path="POST /api/auth/sign-out" type="endpoint">
+  Sign out the current user.
+  
+  Invalidates the session and clears cookies.
+</ParamField>
+
+### OAuth sign-in
+
+<ParamField path="GET /api/auth/sign-in/discord" type="endpoint">
+  Initiate Discord OAuth flow.
+  
+  Redirects to Discord authorization page.
+</ParamField>
+
+<ParamField path="GET /api/auth/sign-in/github" type="endpoint">
+  Initiate GitHub OAuth flow.
+  
+  Redirects to GitHub authorization page.
+</ParamField>
+
+<ParamField path="GET /api/auth/callback/discord" type="endpoint">
+  OAuth callback for Discord.
+  
+  Handles authorization code exchange and user creation.
+</ParamField>
+
+<ParamField path="GET /api/auth/callback/github" type="endpoint">
+  OAuth callback for GitHub.
+  
+  Handles authorization code exchange and user creation.
+</ParamField>
+
+### Passkey authentication
+
+<ParamField path="POST /api/auth/passkey/register" type="endpoint">
+  Register a new passkey.
+  
+  **Request body:**
+  ```json
+  {
+    "email": "user@example.com"
+  }
+  ```
+  
+  Initiates WebAuthn registration ceremony.
+</ParamField>
+
+<ParamField path="POST /api/auth/passkey/authenticate" type="endpoint">
+  Authenticate with passkey.
+  
+  Initiates WebAuthn authentication ceremony.
+</ParamField>
+
+## Custom auth routes
+
+PlanningSup adds custom routes for Tauri/extension OAuth handling:
+
+<ParamField path="GET /api/auth/auto-redirect/:provider" type="endpoint">
+  Auto-redirect for OAuth callbacks in Tauri/extension.
+  
+  **Path parameters:**
+  - `provider` - OAuth provider (e.g., `discord`, `github`)
+  
+  **Query parameters:**
+  - `client` - Client type (`tauri` or `extension`)
+  - Standard OAuth parameters (`code`, `state`, etc.)
+  
+  This endpoint detects Tauri/extension clients and redirects to the appropriate deep link:
+  - Tauri: `tauri://localhost/auth-callback/discord?...`
+  - Extension: `planningsup://auth-callback/discord?...`
+</ParamField>
+
+## User preferences
+
+Authenticated users can sync preferences across devices.
+
+### Preference fields
+
+These fields are stored in the user table and synced automatically:
+
+<ParamField path="theme" type="string">
+  UI theme preference.
+  
+  **Values:** `dark`, `light`, `dracula`, `auto`
+  
+  **Default:** `auto`
+</ParamField>
+
+<ParamField path="highlightTeacher" type="boolean">
+  Whether to highlight events missing teacher info.
+  
+  **Default:** `false`
+</ParamField>
+
+<ParamField path="showWeekends" type="boolean">
+  Whether to show weekends in calendar view.
+  
+  **Default:** `true`
+</ParamField>
+
+<ParamField path="mergeDuplicates" type="boolean">
+  Whether to merge duplicate events.
+  
+  **Default:** `false`
+</ParamField>
+
+<ParamField path="blocklist" type="array">
+  Array of keywords to filter out from events.
+  
+  **Example:** `["exam", "test", "contrôle"]`
+</ParamField>
+
+<ParamField path="plannings" type="array">
+  Array of planning full IDs user has selected.
+  
+  **Example:** `["enscr.elevesing1iereannee", "fac-de-sciences.l1info"]`
+</ParamField>
+
+<ParamField path="customGroups" type="string">
+  JSON string of custom planning groups.
+  
+  **Structure:**
+  ```typescript
+  Array<{
+    id: string
+    name: string
+    plannings: string[]  // Array of fullIds
+  }>
+  ```
+  
+  **Example:**
+  ```json
+  "[{\"id\":\"my-group\",\"name\":\"My Classes\",\"plannings\":[\"enscr.elevesing1iereannee\"]}]"
+  ```
+</ParamField>
+
+<ParamField path="colors" type="string">
+  JSON string of custom color mappings.
+  
+  **Structure:**
+  ```typescript
+  Record<string, string>  // planningFullId or category -> color
+  ```
+  
+  **Example:**
+  ```json
+  "{\"enscr.elevesing1iereannee\":\"#3b82f6\",\"lecture\":\"#10b981\"}"
+  ```
+</ParamField>
+
+<ParamField path="prefsMeta" type="string">
+  JSON string of preference update timestamps.
+  
+  Used for conflict resolution during sync.
+  
+  **Structure:**
+  ```typescript
+  Record<string, number>  // preference key -> timestamp
+  ```
+  
+  **Example:**
+  ```json
+  "{\"theme\":1709419845000,\"blocklist\":1709419850000}"
+  ```
+</ParamField>
+
+## Preferences sync
+
+The web app uses `useUserPrefsSync` composable for bidirectional sync:
+
+### Sync logic
+
+<Steps>
+  <Step title="On app load">
+    Fetch user session:
+    ```typescript
+    const session = await client.api.auth.session.get()
+    ```
+  </Step>
+  
+  <Step title="Merge with local state">
+    For each preference:
+    1. Compare `prefsMeta` timestamps
+    2. If server value is newer, use it
+    3. If local value is newer, push to server
+  </Step>
+  
+  <Step title="Watch for changes">
+    When user updates a preference:
+    1. Update local state immediately
+    2. Debounce API call (500ms)
+    3. Push change to server
+    4. Update `prefsMeta` timestamp
+  </Step>
+</Steps>
+
+### Example: Update preference
+
+```typescript
+import { useUserPrefsSync } from '@/composables/useUserPrefsSync'
+
+const { prefs, updatePref } = useUserPrefsSync()
+
+// Update theme
+await updatePref('theme', 'dark')
+
+// Update blocklist
+await updatePref('blocklist', ['exam', 'test', 'contrôle'])
+
+// Update custom groups
+await updatePref('customGroups', JSON.stringify([
+  {
+    id: 'my-group',
+    name: 'My Classes',
+    plannings: ['enscr.elevesing1iereannee']
+  }
+]))
+```
+
+Preferences are automatically synced to the server and persisted.
+
+## Rate limiting
+
+BetterAuth applies rate limits to prevent abuse:
+
+- **General endpoints**: 100 requests per 60 seconds
+- **Passkey endpoints**: 5 requests per 10 seconds
+
+**Response when rate limited:**
+```json
+{
+  "error": "Too many requests"
+}
+```
+
+**Status:** `429 Too Many Requests`
+
+The response may include a `Retry-After` header with seconds to wait.
+
+## OAuth configuration
+
+To enable OAuth providers, configure environment variables:
+
+### Discord
+
+1. Create an application at https://discord.com/developers/applications
+2. Add OAuth2 redirect URL: `https://your-domain.com/api/auth/callback/discord`
+3. Configure environment variables:
+
+```bash
+AUTH_ENABLED=true
+DISCORD_CLIENT_ID=your_discord_client_id
+DISCORD_CLIENT_SECRET=your_discord_client_secret
+BETTER_AUTH_SECRET=random_secret_key
+BETTER_AUTH_URL=https://your-domain.com
+PUBLIC_ORIGIN=https://your-domain.com
+```
+
+### GitHub
+
+1. Create an OAuth app at https://github.com/settings/developers
+2. Set callback URL: `https://your-domain.com/api/auth/callback/github`
+3. Configure environment variables:
+
+```bash
+AUTH_ENABLED=true
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
+BETTER_AUTH_SECRET=random_secret_key
+BETTER_AUTH_URL=https://your-domain.com
+PUBLIC_ORIGIN=https://your-domain.com
+```
+
+## Passkey configuration
+
+Passkeys (WebAuthn) require HTTPS in production:
+
+1. Ensure `PUBLIC_ORIGIN` uses HTTPS
+2. Configure `TRUSTED_ORIGINS` to include all valid origins
+3. Passkeys are registered per-domain (e.g., `planningsup.app`)
+
+**Development note:**
+- Localhost is allowed for testing: `http://localhost:4444`
+- Passkeys registered on localhost won't work on production domain
+
+## Security considerations
+
+<Warning>
+**Important security practices:**
+
+- Always use HTTPS in production
+- Keep `BETTER_AUTH_SECRET` secret and rotate regularly
+- Use strong OAuth client secrets
+- Configure `TRUSTED_ORIGINS` restrictively
+- Never commit secrets to version control
+- Use rate limiting to prevent abuse
+</Warning>
+
+## Session lifetime
+
+Sessions are configured with:
+- **Expires in:** 30 days
+- **Update age:** 7 days (session refreshed every 7 days of activity)
+
+Sessions are stored server-side in PostgreSQL and referenced via HTTP-only cookies.
+
+## Example: Full authentication flow
+
+<Steps>
+  <Step title="User clicks 'Sign in with Discord'">
+    ```typescript
+    window.location.href = '/api/auth/sign-in/discord'
+    ```
+  </Step>
+  
+  <Step title="User authorizes on Discord">
+    Discord redirects back to `/api/auth/callback/discord?code=...`
+  </Step>
+  
+  <Step title="Server exchanges code for tokens">
+    BetterAuth:
+    1. Exchanges authorization code for access token
+    2. Fetches user profile from Discord
+    3. Creates or updates user in database
+    4. Creates session and sets cookie
+  </Step>
+  
+  <Step title="User redirected to app">
+    App checks session:
+    ```typescript
+    const session = await client.api.auth.session.get()
+    if (session.data?.user) {
+      // User is authenticated
+      console.log('Logged in as:', session.data.user.email)
+    }
+    ```
+  </Step>
+  
+  <Step title="Preferences sync automatically">
+    `useUserPrefsSync` merges local and server preferences based on timestamps.
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Environment variables" icon="gear" href="/developers/environment-variables">
+    Configure authentication environment variables
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/developers/architecture">
+    Learn about the authentication system design
+  </Card>
+</CardGroup>

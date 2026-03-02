@@ -1,0 +1,283 @@
+---
+title: Web app
+description: Access PlanningSup from any modern browser with full PWA support
+---
+
+# Web app
+
+The PlanningSup web app is the primary way to use the service. It's a modern Progressive Web App (PWA) built with Vue 3, Vite, and DaisyUI.
+
+## Features
+
+The web app includes all PlanningSup features:
+
+<CardGroup cols={2}>
+  <Card icon="calendar">
+    **Full calendar views**
+    
+    Day, week, month grid, and month agenda with real-time updates
+  </Card>
+  <Card icon="palette">
+    **Rich customization**
+    
+    Colors, filters, timezones, and event display preferences
+  </Card>
+  <Card icon="wifi-slash">
+    **Offline support**
+    
+    Service Worker caching for offline access
+  </Card>
+  <Card icon="fingerprint">
+    **Passkey authentication**
+    
+    WebAuthn support for passwordless login (web only)
+  </Card>
+</CardGroup>
+
+## Accessing the web app
+
+Visit [planningsup.app](https://planningsup.app) in any modern browser:
+
+- **Chrome / Edge**: Full PWA support with install prompt
+- **Safari**: PWA support via "Add to Home Screen"
+- **Firefox**: Works as a regular web app (no PWA install)
+
+<Info>
+  PlanningSup requires JavaScript to be enabled. The app does not render server-side.
+</Info>
+
+## Architecture
+
+The web app is built with:
+
+### Frontend stack
+
+```json
+// apps/web/package.json
+{
+  "dependencies": {
+    "vue": "3.5.28",
+    "@schedule-x/calendar": "^2.6.0",
+    "daisyui": "5.5.19",
+    "tailwindcss": "4.2.0",
+    "@vueuse/core": "^11.4.0",
+    "temporal-polyfill": "0.3.0"
+  }
+}
+```
+
+- **Vue 3**: Composition API with `<script setup>` syntax
+- **ScheduleX**: Calendar component library
+- **DaisyUI**: Tailwind CSS component library
+- **VueUse**: Vue composables for common patterns
+- **Temporal Polyfill**: Modern date/time API
+
+### Backend API
+
+The web app communicates with the API via [Eden Treaty](https://elysiajs.com/eden/overview.html), a type-safe API client:
+
+```typescript
+// packages/libs/src/client/index.ts
+import { treaty } from '@elysiajs/eden'
+import type { App } from '@api/index'
+
+export const client = treaty<App>(BACKEND_URL)
+
+// Usage in components:
+const { data } = await client.api.plannings({ fullId }).get({
+  query: { events: 'true' },
+})
+```
+
+This provides end-to-end type safety from the backend to the frontend.
+
+### Service Worker
+
+The PWA uses [vite-plugin-pwa](https://vite-pwa-org.netlify.app/) for Service Worker generation:
+
+```typescript
+// apps/web/vite.config.ts
+import { VitePWA } from 'vite-plugin-pwa'
+
+export default defineConfig({
+  plugins: [
+    VitePWA({
+      registerType: 'autoUpdate',
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        runtimeCaching: [
+          {
+            urlPattern: /^\/api\/plannings/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'plannings-cache',
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 },
+            },
+          },
+        ],
+      },
+    }),
+  ],
+})
+```
+
+This caches:
+- **App shell** (HTML, CSS, JS)
+- **Planning data** (API responses)
+- **Static assets** (fonts, icons)
+
+## Deployment
+
+The web app is deployed to production using:
+
+1. **Docker**: The Dockerfile builds the web app and API together
+2. **GitHub Actions**: Automated CI/CD pipeline (`.github/workflows/docker-publish.yml`)
+3. **Container registry**: Published to `ghcr.io/kernoeb/planningsup`
+
+### Build process
+
+```bash
+# From the root of the monorepo
+bun run build
+
+# This runs:
+cd apps/web && bun run build  # Vite build to dist/
+cd apps/api && bun run build  # Bun compile to standalone binary
+```
+
+The web app outputs static files to `apps/web/dist/`, which are served by the API using Elysia's static file middleware:
+
+```typescript
+// apps/api/src/index.ts
+import { staticPlugin } from '@elysiajs/static'
+
+const app = new Elysia()
+  .use(staticPlugin({
+    assets: '../web/dist',
+    prefix: '/',
+  }))
+  .listen(PORT)
+```
+
+## Environment variables
+
+The web app uses the following environment variables:
+
+```bash
+# apps/web/.env
+VITE_BACKEND_URL=http://localhost:20000  # API base URL
+VITE_AUTH_ENABLED=true                   # Enable authentication
+```
+
+These are injected at build time via Vite's `import.meta.env`.
+
+<Warning>
+  Do not commit `.env` files to version control. Use `.env.example` as a template.
+</Warning>
+
+## Runtime configuration
+
+The web app receives runtime configuration from the API via `/config.js`:
+
+```typescript
+// apps/api/src/routes/config.ts
+app.get('/config.js', () => {
+  return new Response(
+    `window.__APP_CONFIG__ = ${JSON.stringify({
+      authEnabled: !!AUTH_ENABLED,
+      plausible: {
+        domain: PLAUSIBLE_DOMAIN,
+        endpoint: PLAUSIBLE_ENDPOINT,
+      },
+    })};`,
+    { headers: { 'Content-Type': 'application/javascript' } },
+  )
+})
+```
+
+This allows the same build to work in multiple environments (dev, staging, production) without rebuilding.
+
+## Performance optimizations
+
+### Code splitting
+
+Vue components are lazy-loaded where possible:
+
+```typescript
+// apps/web/src/App.vue
+const LazyBouncing = defineAsyncComponent(
+  () => import('@web/components/misc/Bouncing.vue')
+)
+```
+
+### Virtual scrolling
+
+The planning picker uses [VueUse's `useVirtualList`](https://vueuse.org/core/useVirtualList/) to render thousands of plannings efficiently:
+
+```typescript
+// apps/web/src/components/planning/PlanningPicker.vue
+const { list: virtualRows, containerProps, wrapperProps } = useVirtualList(
+  flatRows,
+  { itemHeight: 40 },
+)
+```
+
+### Debounced search
+
+```typescript
+const searchQuery = ref('')
+const debouncedSearchQuery = refDebounced(searchQuery, 100)
+```
+
+This avoids re-filtering on every keystroke.
+
+## Browser compatibility
+
+PlanningSup supports:
+
+- **Chrome / Edge**: 90+
+- **Safari**: 14+
+- **Firefox**: 88+
+
+<Info>
+  The app uses the [Temporal polyfill](https://www.npmjs.com/package/temporal-polyfill) for browsers that don't support the native Temporal API.
+</Info>
+
+## Accessibility
+
+The web app follows accessibility best practices:
+
+- **Semantic HTML**: `<dialog>`, `<nav>`, `<main>`, etc.
+- **ARIA labels**: `aria-label`, `aria-describedby` on interactive elements
+- **Keyboard navigation**: All actions accessible via keyboard
+- **Focus management**: Dialogs trap focus and restore on close
+
+## Analytics
+
+PlanningSup optionally integrates with [Plausible Analytics](https://plausible.io/) for privacy-friendly usage tracking:
+
+```typescript
+// apps/web/src/main.ts
+import { init as initPlausible } from '@plausible-analytics/tracker'
+
+if (plausibleConfig?.domain) {
+  initPlausible({
+    domain: plausibleConfig.domain,
+    endpoint: plausibleConfig.endpoint,
+    customProperties: getPlausibleAnalyticsProps,
+  })
+}
+```
+
+No personal data is collected. Only page views and custom events (e.g., "select planning") are tracked.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Browser extension" icon="puzzle-piece" href="/platforms/browser-extension">
+    Install the Chrome extension for quick access
+  </Card>
+  <Card title="Desktop & mobile" icon="mobile" href="/platforms/desktop-mobile">
+    Install native apps with Tauri
+  </Card>
+</CardGroup>

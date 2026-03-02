@@ -1,0 +1,332 @@
+---
+title: Self-hosting
+description: Complete guide to self-hosting PlanningSup on your own infrastructure
+---
+
+PlanningSup is designed to be self-hosted with minimal configuration. This guide covers everything you need to run your own instance.
+
+## System requirements
+
+- Bun runtime (version specified in `.bun-version` - currently Bun 1.x)
+- Node.js ≥ 24 (for certain tooling)
+- PostgreSQL 18 (via Docker Compose or standalone)
+- Docker + Docker Compose (recommended for production)
+
+## Quick start with Docker
+
+The easiest way to self-host PlanningSup is using the official Docker image.
+
+<Steps>
+  <Step title="Create environment files">
+    Create `db.env` for PostgreSQL configuration:
+    
+    ```bash db.env
+    POSTGRES_USER=planningsup
+    POSTGRES_PASSWORD=mysecretpassword
+    POSTGRES_DB=planningsup
+    ```
+    
+    Create `webapp.env` for the application:
+    
+    ```bash webapp.env
+    DATABASE_URL=postgres://planningsup:mysecretpassword@postgres:5432/planningsup
+    PORT=20000
+    RUN_JOBS=true
+    PUBLIC_ORIGIN=https://your-domain.com
+    TRUSTED_ORIGINS=https://your-domain.com
+    AUTH_ENABLED=false
+    ```
+  </Step>
+  
+  <Step title="Use the production compose file">
+    Create a `docker-compose.yml` based on the provided `docker-compose.prod.yml`:
+    
+    ```yaml docker-compose.yml
+    services:
+      postgres:
+        image: postgres:18
+        container_name: planningsup_db
+        env_file: db.env
+        restart: always
+        volumes:
+          - ./postgres_data:/var/lib/postgresql
+        networks:
+          - planningsup_network
+        healthcheck:
+          test: ['CMD-SHELL', 'pg_isready']
+          interval: 10s
+          timeout: 5s
+          retries: 5
+
+      webapp:
+        image: ghcr.io/kernoeb/planningsup
+        container_name: planningsup_webapp
+        env_file: webapp.env
+        restart: always
+        depends_on:
+          postgres:
+            condition: service_healthy
+            restart: true
+        ports:
+          - '31021:20000'
+        networks:
+          - planningsup_network
+
+    networks:
+      planningsup_network:
+        driver: bridge
+    ```
+  </Step>
+  
+  <Step title="Start the services">
+    ```bash
+    docker compose up -d
+    ```
+    
+    The application will be available at `http://localhost:31021`
+  </Step>
+  
+  <Step title="Verify health">
+    Check that the API is responding:
+    
+    ```bash
+    curl http://localhost:31021/api/ping
+    # Should return: pong
+    ```
+  </Step>
+</Steps>
+
+## Development setup
+
+For development or contributions, you'll want to run from source.
+
+<Steps>
+  <Step title="Clone and install dependencies">
+    ```bash
+    git clone https://github.com/kernoeb/planningsup.git
+    cd planningsup
+    bun install
+    ```
+  </Step>
+  
+  <Step title="Configure environment">
+    ```bash
+    cp apps/api/.env.example apps/api/.env
+    ```
+    
+    The default `DATABASE_URL` connects to the Docker Compose PostgreSQL:
+    ```bash
+    DATABASE_URL=postgres://planningsup:mysecretpassword@localhost:5432/planningsup
+    ```
+  </Step>
+  
+  <Step title="Start development stack">
+    This command starts PostgreSQL via Docker Compose, then launches the API and web app:
+    
+    ```bash
+    bun dev
+    ```
+    
+    Services will be available at:
+    - API: `http://localhost:20000`
+    - Web app: `http://localhost:4444`
+  </Step>
+</Steps>
+
+## Data persistence
+
+### Planning JSON files
+
+Planning definitions are stored in `resources/plannings/*.json`. In the Docker image, these are copied to `/app/plannings` and loaded at startup.
+
+<Note>
+The `PLANNINGS_LOCATION` environment variable can override the default location if needed.
+</Note>
+
+### Database backups
+
+PlanningSup automatically backs up ICS calendar data to PostgreSQL:
+- Plannings are fetched from upstream ICS URLs
+- Events are parsed and stored in the `plannings_backup` table
+- Backups provide offline resilience when upstream sources are unavailable
+- Background jobs refresh plannings periodically
+
+### Volume mounts
+
+In production, mount a volume for PostgreSQL data to persist across container restarts:
+
+```yaml
+volumes:
+  - ./postgres_data:/var/lib/postgresql
+```
+
+## Monitoring and health checks
+
+### Health check endpoint
+
+The Docker image includes a built-in health check:
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["/bin/sh", "-c", "[ \"$(wget -qO- http://localhost:20000/api/ping)\" = \"pong\" ]"]
+```
+
+### Operations endpoint
+
+For detailed system health, configure `OPS_TOKEN` and use:
+
+```bash
+curl -H "x-ops-token: YOUR_TOKEN" http://localhost:20000/api/ops/plannings
+```
+
+This returns queue statistics, backup coverage, worker states, and recent failures.
+
+## Reverse proxy configuration
+
+### Nginx example
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name planningsup.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/planningsup.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/planningsup.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:31021;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+### Caddy example
+
+```caddyfile
+planningsup.example.com {
+    reverse_proxy localhost:31021
+}
+```
+
+## Updating your instance
+
+<Steps>
+  <Step title="Pull the latest image">
+    ```bash
+    docker pull ghcr.io/kernoeb/planningsup:latest
+    ```
+  </Step>
+  
+  <Step title="Restart services">
+    ```bash
+    docker compose down
+    docker compose up -d
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+Database migrations run automatically on startup. Ensure your PostgreSQL data is backed up before major version updates.
+</Warning>
+
+## Troubleshooting
+
+### Container logs
+
+```bash
+# View API logs
+docker logs planningsup_webapp
+
+# Follow logs in real-time
+docker logs -f planningsup_webapp
+
+# Check database logs
+docker logs planningsup_db
+```
+
+### Database connection issues
+
+Verify the database is healthy:
+
+```bash
+docker compose ps
+docker exec -it planningsup_db pg_isready
+```
+
+### Port conflicts
+
+If port 31021 is already in use, change the mapping in `docker-compose.yml`:
+
+```yaml
+ports:
+  - '8080:20000'  # Use port 8080 instead
+```
+
+### Planning data not loading
+
+Check that `PLANNINGS_LOCATION` points to a valid directory with JSON files:
+
+```bash
+docker exec planningsup_webapp ls /app/plannings
+```
+
+## Security considerations
+
+<Warning>
+**Production checklist:**
+- Change all default passwords
+- Set `AUTH_ENABLED=true` if using authentication features
+- Configure `OPS_TOKEN` for operations endpoints
+- Use strong values for `BETTER_AUTH_SECRET`
+- Keep `PUBLIC_ORIGIN` and `TRUSTED_ORIGINS` aligned
+- Enable HTTPS via reverse proxy
+- Regularly update the Docker image
+</Warning>
+
+## Performance tuning
+
+### Background jobs
+
+Control job behavior with these variables:
+
+```bash
+# Enable/disable background jobs
+RUN_JOBS=true
+
+# Define quiet hours (reduced activity)
+JOBS_QUIET_HOURS=21:00-06:00
+
+# Control which jobs run
+ALLOWED_JOBS=plannings-backfill,plannings-refresh-worker
+```
+
+### Database optimization
+
+For high-traffic instances, consider:
+- Increasing PostgreSQL `shared_buffers` and `effective_cache_size`
+- Using connection pooling with PgBouncer
+- Adding read replicas for queries
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Docker deployment" icon="docker" href="/developers/docker-deployment">
+    Deep dive into Docker configuration and deployment strategies
+  </Card>
+  <Card title="Environment variables" icon="gear" href="/developers/environment-variables">
+    Complete reference of all configuration options
+  </Card>
+  <Card title="Contributing" icon="code-pull-request" href="/developers/contributing">
+    Learn how to contribute code and features
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/developers/architecture">
+    Understand the system architecture and design decisions
+  </Card>
+</CardGroup>

@@ -1,0 +1,580 @@
+---
+title: Docker deployment
+description: Advanced Docker deployment strategies and configuration for PlanningSup
+---
+
+This guide covers Docker-specific deployment scenarios, image building, and production best practices.
+
+## Official Docker image
+
+PlanningSup publishes official images to GitHub Container Registry:
+
+```bash
+gh cr.io/kernoeb/planningsup:latest
+```
+
+### Available tags
+
+- `latest` - Latest stable release
+- `vX.Y.Z` - Specific version tags (e.g., `v3.0.0`)
+- `main` - Latest commit on main branch (may be unstable)
+
+## Image architecture
+
+The production image uses a multi-stage build for minimal size and security.
+
+### Build stage
+
+```dockerfile
+FROM oven/bun:1 AS build
+
+# Install Node.js 24 for tooling
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
+    apt-get install -y nodejs
+
+WORKDIR /app
+
+# Install dependencies
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+
+# Copy source and build
+COPY . .
+RUN bun run lint && bun run typecheck
+RUN bun run build
+
+# Run unit tests
+ENV NODE_ENV=test
+RUN bun run test:unit
+```
+
+<Note>
+The Docker build runs linting, type checking, building, and unit tests to ensure image quality.
+</Note>
+
+### Runtime stage
+
+```dockerfile
+FROM gcr.io/distroless/base-debian12
+
+# Copy only runtime artifacts
+COPY --from=build /app/apps/api/server ./server
+COPY --from=build /app/apps/web/dist ./web/dist/
+COPY --from=build /app/plannings ./plannings
+
+ENV NODE_ENV=production
+ENV PORT=20000
+
+CMD ["./server"]
+EXPOSE $PORT
+```
+
+The final image uses Google's distroless base for:
+- Minimal attack surface (no package manager, shell by default)
+- Small image size
+- Security hardening
+
+## Building custom images
+
+### Build locally
+
+```bash
+# Build with default settings
+bun run docker:build
+
+# This creates an image tagged as 'test-planningsup'
+```
+
+The build script is defined in `package.json`:
+
+```json
+{
+  "scripts": {
+    "docker:build": "docker build -t test-planningsup ."
+  }
+}
+```
+
+### Build with custom tag
+
+```bash
+docker build -t myregistry/planningsup:v1.0.0 .
+```
+
+### Build arguments
+
+The Dockerfile accepts a `BUN_VERSION` argument:
+
+```bash
+docker build --build-arg BUN_VERSION=1.1.0 -t planningsup:bun-1.1.0 .
+```
+
+## Deployment configurations
+
+### Development stack
+
+The `docker-compose.yml` provides a minimal development database:
+
+```yaml
+services:
+  postgres:
+    image: postgres:18
+    container_name: planningsup_db
+    environment:
+      POSTGRES_USER: planningsup
+      POSTGRES_PASSWORD: mysecretpassword
+      POSTGRES_DB: planningsup
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql
+    networks:
+      - planningsup_network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+    name: planningsup_pgdata
+
+networks:
+  planningsup_network:
+    driver: bridge
+    name: planningsup_network
+```
+
+### Production stack
+
+The `docker-compose.prod.yml` adds the webapp service:
+
+```yaml
+services:
+  postgres:
+    image: postgres:18
+    container_name: planningsup_db
+    env_file: db.env
+    restart: always
+    volumes:
+      - ./postgres_data:/var/lib/postgresql
+    networks:
+      - planningsup_network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  webapp:
+    image: ghcr.io/kernoeb/planningsup
+    container_name: planningsup_webapp
+    env_file: webapp.env
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+    ports:
+      - '31021:20000'
+    networks:
+      - planningsup_network
+
+networks:
+  planningsup_network:
+    driver: bridge
+```
+
+### Test stacks
+
+PlanningSup includes dedicated test configurations:
+
+#### Standard integration tests
+
+`docker-compose.test.yml` runs with `AUTH_ENABLED=false`:
+
+```yaml
+services:
+  postgres-test:
+    image: postgres:18
+    container_name: planningsup_db_test
+    ports:
+      - '5433:5432'
+    # ...
+
+  app-test:
+    build: .
+    container_name: planningsup_test_app
+    environment:
+      DATABASE_URL: postgresql://testuser:testpass@postgres-test:5432/planningsup_test
+      AUTH_ENABLED: false
+      PORT: 20000
+    ports:
+      - '20000:20000'
+```
+
+#### Authentication tests
+
+`docker-compose.test-auth.yml` runs with `AUTH_ENABLED=true`:
+
+```yaml
+services:
+  postgres-test-auth:
+    # ...
+    ports:
+      - '5434:5432'
+
+  app-test-auth:
+    # ...
+    environment:
+      AUTH_ENABLED: true
+      PORT: 20001
+    ports:
+      - '20001:20001'
+```
+
+## Production deployment patterns
+
+### Single server deployment
+
+<Steps>
+  <Step title="Set up environment files">
+    Create `db.env` and `webapp.env` with production values.
+  </Step>
+  
+  <Step title="Deploy with Docker Compose">
+    ```bash
+    docker compose -f docker-compose.prod.yml up -d
+    ```
+  </Step>
+  
+  <Step title="Configure reverse proxy">
+    Point Nginx, Caddy, or Traefik to port 31021.
+  </Step>
+</Steps>
+
+### High availability setup
+
+<Tabs>
+  <Tab title="Load balanced">
+    Deploy multiple webapp containers behind a load balancer:
+    
+    ```yaml
+    services:
+      webapp-1:
+        image: ghcr.io/kernoeb/planningsup
+        # ...
+      
+      webapp-2:
+        image: ghcr.io/kernoeb/planningsup
+        # ...
+      
+      nginx:
+        image: nginx
+        volumes:
+          - ./nginx.conf:/etc/nginx/nginx.conf
+        ports:
+          - '80:80'
+    ```
+  </Tab>
+  
+  <Tab title="Database replication">
+    Use PostgreSQL streaming replication:
+    
+    ```yaml
+    services:
+      postgres-primary:
+        image: postgres:18
+        environment:
+          POSTGRES_REPLICATION: true
+        # ...
+      
+      postgres-replica:
+        image: postgres:18
+        environment:
+          POSTGRES_PRIMARY_HOST: postgres-primary
+        # ...
+    ```
+  </Tab>
+</Tabs>
+
+### Kubernetes deployment
+
+Example Kubernetes manifests:
+
+<CodeGroup>
+```yaml deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: planningsup
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: planningsup
+  template:
+    metadata:
+      labels:
+        app: planningsup
+    spec:
+      containers:
+      - name: planningsup
+        image: ghcr.io/kernoeb/planningsup:latest
+        ports:
+        - containerPort: 20000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: planningsup-secrets
+              key: database-url
+        - name: PORT
+          value: "20000"
+        - name: RUN_JOBS
+          value: "true"
+        livenessProbe:
+          httpGet:
+            path: /api/ping
+            port: 20000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/ping
+            port: 20000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+```
+
+```yaml service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: planningsup
+spec:
+  selector:
+    app: planningsup
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 20000
+  type: LoadBalancer
+```
+
+```yaml ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: planningsup
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+  - hosts:
+    - planningsup.example.com
+    secretName: planningsup-tls
+  rules:
+  - host: planningsup.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: planningsup
+            port:
+              number: 80
+```
+</CodeGroup>
+
+## Managing containers
+
+### View logs
+
+```bash
+# All services
+docker compose logs
+
+# Specific service
+docker compose logs webapp
+
+# Follow logs
+docker compose logs -f
+
+# Last 100 lines
+docker compose logs --tail=100 webapp
+```
+
+### Restart services
+
+```bash
+# Restart all
+docker compose restart
+
+# Restart webapp only
+docker compose restart webapp
+
+# Recreate containers
+docker compose up -d --force-recreate
+```
+
+### Update deployment
+
+```bash
+# Pull latest images
+docker compose pull
+
+# Recreate with new images
+docker compose up -d
+```
+
+### Execute commands in container
+
+```bash
+# Open shell (if available)
+docker exec -it planningsup_webapp sh
+
+# Run specific command
+docker exec planningsup_webapp ls /app/plannings
+```
+
+## Health monitoring
+
+### Docker health checks
+
+View container health status:
+
+```bash
+docker compose ps
+```
+
+Output shows health status:
+```
+NAME                    STATUS                    PORTS
+planningsup_webapp      Up 2 hours (healthy)      0.0.0.0:31021->20000/tcp
+planningsup_db          Up 2 hours (healthy)      5432/tcp
+```
+
+### Manual health checks
+
+```bash
+# API health
+curl http://localhost:31021/api/ping
+
+# Database health
+docker exec planningsup_db pg_isready
+
+# Operations status (requires OPS_TOKEN)
+curl -H "x-ops-token: YOUR_TOKEN" http://localhost:31021/api/ops/plannings
+```
+
+## Troubleshooting
+
+### Build failures
+
+<Expandable title="Lint or typecheck errors">
+The Docker build runs `bun run lint` and `bun run typecheck`. If these fail, fix the issues locally first:
+
+```bash
+bun run lint-fix
+bun run typecheck
+```
+</Expandable>
+
+<Expandable title="Unit test failures">
+The build also runs `bun run test:unit`. Ensure tests pass locally:
+
+```bash
+bun run test:unit
+```
+</Expandable>
+
+<Expandable title="Out of memory">
+Increase Docker memory limits in Docker Desktop settings or use build arguments:
+
+```bash
+docker build --memory=4g -t planningsup .
+```
+</Expandable>
+
+### Runtime issues
+
+<Expandable title="Container exits immediately">
+Check logs for startup errors:
+
+```bash
+docker logs planningsup_webapp
+```
+
+Common issues:
+- Invalid `DATABASE_URL`
+- Missing required environment variables
+- Database not ready (check depends_on and healthcheck)
+</Expandable>
+
+<Expandable title="Database connection refused">
+Ensure containers are on the same network:
+
+```bash
+docker network inspect planningsup_network
+```
+
+Verify the database hostname matches the service name in `docker-compose.yml`.
+</Expandable>
+
+<Expandable title="Planning data missing">
+Check that planning JSON files are mounted or copied correctly:
+
+```bash
+docker exec planningsup_webapp ls /app/plannings
+```
+</Expandable>
+
+## CI/CD integration
+
+PlanningSup uses GitHub Actions for automated builds and tests.
+
+### Workflow overview
+
+The `.github/workflows/docker-publish.yml` workflow:
+
+1. Builds the Docker image
+2. Runs integration tests (auth disabled and enabled)
+3. Runs E2E tests (only when UI files change)
+4. Publishes to GitHub Container Registry (on main branch or version tags)
+
+### Publishing images
+
+Images are published only:
+- On whitelisted branches (`main`, `dev`)
+- On valid `vX.Y.Z` tags
+- NOT from fork pull requests
+
+### Running tests in CI
+
+```bash
+# Integration tests (no auth)
+bun run test:integration
+
+# Integration tests (with auth)
+bun run test:integration:auth
+
+# E2E tests
+bun run test:e2e
+```
+
+See the [Testing Guide](/developers/contributing#testing) for more details.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Environment variables" icon="gear" href="/developers/environment-variables">
+    Complete reference of all configuration options
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/developers/architecture">
+    Understand the system design and components
+  </Card>
+</CardGroup>

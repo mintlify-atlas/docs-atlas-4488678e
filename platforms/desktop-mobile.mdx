@@ -1,0 +1,323 @@
+---
+title: Desktop & mobile
+description: Install PlanningSup as a native app on Windows, macOS, Linux, Android, and iOS using Tauri
+---
+
+# Desktop & mobile
+
+PlanningSup can be installed as a **native application** on desktop and mobile platforms using [Tauri](https://tauri.app/), a Rust-based framework for building cross-platform apps with web technologies.
+
+## Supported platforms
+
+<CardGroup cols={2}>
+  <Card icon="windows">
+    **Windows**
+    
+    Windows 10+ (64-bit)
+  </Card>
+  <Card icon="apple">
+    **macOS**
+    
+    macOS 10.15+ (Intel and Apple Silicon)
+  </Card>
+  <Card icon="linux">
+    **Linux**
+    
+    Ubuntu 20.04+, Fedora 36+, and other modern distros
+  </Card>
+  <Card icon="mobile">
+    **Android**
+    
+    Android 7.0+ (API level 24+)
+  </Card>
+</CardGroup>
+
+<Info>
+  iOS support is experimental and requires building from source. Use the web app or PWA instead for the best iOS experience.
+</Info>
+
+## Installation
+
+Native builds are **not yet available** for public download. To run the desktop or mobile app, you must build from source.
+
+### Prerequisites
+
+<Steps>
+  <Step title="Install Rust">
+    Follow the instructions at [rustup.rs](https://rustup.rs/)
+  </Step>
+  <Step title="Install Bun">
+    Download from [bun.sh](https://bun.sh/)
+  </Step>
+  <Step title="Install system dependencies">
+    **Linux**:
+    ```bash
+    sudo apt install libwebkit2gtk-4.0-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+    ```
+    
+    **macOS**: Xcode Command Line Tools (pre-installed on most systems)
+    
+    **Windows**: [Microsoft Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+  </Step>
+</Steps>
+
+### Build for desktop
+
+```bash
+# Clone the repository
+git clone https://github.com/kernoeb/PlanningSup.git
+cd PlanningSup
+
+# Install dependencies
+bun install
+
+# Build the Tauri app
+cd apps/app
+VITE_AUTH_ENABLED=true VITE_BACKEND_URL=https://planningsup.app bun run tauri build
+```
+
+The compiled app will be in `apps/app/src-tauri/target/release/bundle/`:
+
+- **Windows**: `.msi` installer
+- **macOS**: `.dmg` disk image
+- **Linux**: `.deb` or `.AppImage`
+
+### Build for Android
+
+<Steps>
+  <Step title="Install Android Studio">
+    Download from [developer.android.com](https://developer.android.com/studio)
+  </Step>
+  <Step title="Set up Android SDK">
+    Accept licenses:
+    ```bash
+    sdkmanager --licenses
+    ```
+  </Step>
+  <Step title="Add Android target to Tauri">
+    ```bash
+    cd apps/app
+    bun run tauri android init
+    ```
+  </Step>
+  <Step title="Build the APK">
+    ```bash
+    VITE_AUTH_ENABLED=true VITE_BACKEND_URL=https://planningsup.app bun run tauri android build
+    ```
+  </Step>
+</Steps>
+
+The APK will be in `apps/app/src-tauri/gen/android/app/build/outputs/apk/`.
+
+<Warning>
+  Android builds require a signing key for production. Use `bun run tauri android build --debug` for testing.
+</Warning>
+
+## Features
+
+The native apps have **feature parity** with the web app, plus:
+
+<CardGroup cols={2}>
+  <Card icon="rocket">
+    **Faster startup**
+    
+    Native binary loads instantly without browser overhead
+  </Card>
+  <Card icon="bell">
+    **System notifications**
+    
+    (Planned) Get notified before classes start
+  </Card>
+  <Card icon="download">
+    **Offline-first**
+    
+    Embedded database for faster data access
+  </Card>
+  <Card icon="window-maximize">
+    **Native window controls**
+    
+    Minimize, maximize, and close like any desktop app
+  </Card>
+</CardGroup>
+
+## Architecture
+
+The Tauri app embeds the Vue web app inside a **WebView** (system browser engine):
+
+- **Windows**: Edge WebView2
+- **macOS**: WKWebView
+- **Linux**: WebKitGTK
+- **Android**: Android System WebView
+
+The Rust backend provides:
+- Window management
+- File system access (for backups, exports, etc.)
+- Deep link handling (for OAuth redirects)
+
+```rust
+// apps/app/src-tauri/src/main.rs
+fn main() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_opener::init())
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+```
+
+## OAuth in native apps
+
+Native apps use **deep links** to handle OAuth redirects:
+
+<Steps>
+  <Step title="User clicks 'Sign in with Discord'">
+    The app opens the OAuth URL in the system browser
+  </Step>
+  <Step title="User authorizes on Discord">
+    Discord redirects to `planningsup://auth-callback/discord?code=...`
+  </Step>
+  <Step title="Deep link opens the app">
+    The Tauri app intercepts the deep link and extracts the OAuth code
+  </Step>
+  <Step title="App completes authentication">
+    The app exchanges the code for a session cookie via the API
+  </Step>
+</Steps>
+
+```typescript
+// apps/web/src/composables/useAuth.ts
+if (IS_TAURI) {
+  const { onOpenUrl } = await import('@tauri-apps/plugin-deep-link')
+  
+  await onOpenUrl(async (urls) => {
+    const url = urls[0]
+    if (url.startsWith('planningsup://auth-callback/')) {
+      const urlObj = new URL(url)
+      const provider = urlObj.pathname.split('/')[1]
+      
+      const callbackUrl = new URL(`${BACKEND_URL}/api/auth/callback/${provider}${urlObj.search}`)
+      callbackUrl.searchParams.set('client', 'tauri')
+      
+      await fetch(callbackUrl, { credentials: 'include' })
+      window.location.reload()
+    }
+  })
+}
+```
+
+See `apps/web/src/composables/useAuth.ts:25-76` for the full implementation.
+
+<Warning>
+  Passkeys (WebAuthn) are **not supported** in Tauri apps. Use social login instead.
+</Warning>
+
+## Configuration
+
+The Tauri app is configured in `apps/app/src-tauri/tauri.conf.json`:
+
+```json
+{
+  "productName": "PlanningSup",
+  "version": "0.1.0",
+  "identifier": "app.planningsup",
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "deb", "appimage", "dmg"],
+    "icon": ["icons/icon.png"],
+    "deeplink": {
+      "schemes": ["planningsup"]
+    }
+  }
+}
+```
+
+### Build options
+
+Customize the build via environment variables:
+
+```bash
+# Point to a different backend (e.g., localhost for testing)
+VITE_BACKEND_URL=http://localhost:20000 bun run tauri dev
+
+# Disable authentication
+VITE_AUTH_ENABLED=false bun run tauri build
+```
+
+## Limitations
+
+<Warning>
+  Native apps have some limitations:
+  
+  - **No auto-updates**: You must download new versions manually (Tauri Updater plugin not yet configured)
+  - **Larger download size**: ~10-20 MB vs. less than 1 MB for the web app
+  - **Platform-specific bugs**: WebView engines have quirks (e.g., missing CSS features on Linux)
+</Warning>
+
+## Development
+
+To run the Tauri app in development mode:
+
+```bash
+cd apps/app
+bun run dev  # Starts Vite dev server + Tauri window
+```
+
+Hot reload is enabled for the Vue frontend, but Rust changes require a restart.
+
+### Debugging
+
+Open the WebView DevTools:
+
+- **Windows / Linux**: Right-click → **Inspect**
+- **macOS**: Right-click → **Inspect Element**
+
+Rust logs are printed to the terminal where you ran `bun run dev`.
+
+## Packaging for distribution
+
+### Code signing
+
+For production releases, sign the binaries:
+
+- **macOS**: Use `codesign` with an Apple Developer certificate
+- **Windows**: Use `signtool` with a code signing certificate
+- **Linux**: No signing required (though AppImages can be signed)
+
+### Distributing the app
+
+Options for distributing native builds:
+
+1. **GitHub Releases**: Upload `.msi`, `.dmg`, `.deb`, etc. as release assets
+2. **App stores**: Publish to Microsoft Store, Mac App Store, or Google Play
+3. **Self-hosted**: Host the binaries on your own server with download links
+
+<Info>
+  PlanningSup is not yet published to app stores. Check the [GitHub repository](https://github.com/kernoeb/PlanningSup) for updates.
+</Info>
+
+## Comparison: PWA vs. native app
+
+| Feature | PWA | Tauri Native |
+|---------|-----|-------------|
+| Install size | Less than 1 MB | 10-20 MB |
+| Offline support | ✅ (Service Worker) | ✅ (Embedded DB) |
+| Auto-updates | ✅ | ❌ (manual) |
+| System notifications | ⚠️ (browser-dependent) | ✅ (planned) |
+| OAuth / Passkeys | ✅ | OAuth only |
+| Performance | Good | Slightly better |
+| Cross-platform | ✅ | ✅ |
+
+<Tip>
+  For most users, the **PWA** is the best option. Use the native app if you need deeper system integration or prefer a standalone binary.
+</Tip>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Web app" icon="globe" href="/platforms/web-app">
+    Learn about the full-featured web version
+  </Card>
+  <Card title="Browser extension" icon="puzzle-piece" href="/platforms/browser-extension">
+    Install the Chrome extension for quick access
+  </Card>
+</CardGroup>

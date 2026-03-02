@@ -1,0 +1,326 @@
+---
+title: Customization
+description: Personalize colors, filters, timezones, and event display preferences to match your workflow
+---
+
+# Customization
+
+PlanningSup offers extensive customization options to tailor your calendar experience. All preferences are stored locally and optionally synced across devices when you sign in.
+
+## Event colors
+
+You can customize the color of each event type: **Lecture**, **Lab**, **Tutorial**, and **Other**.
+
+<Steps>
+  <Step title="Open settings">
+    Click the gear icon in the navbar
+  </Step>
+  <Step title="Adjust colors">
+    Under **"Couleurs des événements"** (Event colors), click each color picker to choose a new color
+  </Step>
+  <Step title="Reset to defaults">
+    Click **"Réinitialiser"** (Reset) to restore the default color scheme
+  </Step>
+</Steps>
+
+### Default colors
+
+```typescript
+// apps/web/src/composables/useSettings.ts
+const DEFAULT_COLORS: ColorMap = {
+  lecture: '#efd6d8',   // Soft pink
+  lab: '#bbe0ff',       // Light blue
+  tutorial: '#d4fbcc',  // Light green
+  other: '#EDDD6E',     // Yellow
+}
+```
+
+These colors are optimized for both light and dark themes.
+
+<Info>
+  Colors are stored in `localStorage` and synced to the server if you're signed in. See `apps/web/src/composables/useSettings.ts:273-289` for the sync logic.
+</Info>
+
+## Event filtering
+
+### Blocklist (hide events)
+
+You can hide specific courses from your calendar without deleting them:
+
+<Steps>
+  <Step title="Open settings">
+    Navigate to **"Liste de blocage"** (Blocklist)
+  </Step>
+  <Step title="Add event titles">
+    Type or paste event titles to hide (one per line)
+    
+    ```
+    Example:
+    - "Sport"
+    - "Conférence optionnelle"
+    ```
+  </Step>
+  <Step title="Save and refresh">
+    The calendar re-fetches events with your blocklist applied server-side
+  </Step>
+</Steps>
+
+```typescript
+// apps/web/src/composables/useSettings.ts
+const blocklist = useLocalStorage<string[]>('settings.blocklist', [])
+
+const queryParams = computed<Record<string, string>>(() => {
+  const qp: Record<string, string> = {}
+  if (blocklist.value.length > 0) {
+    qp.blocklist = blocklist.value.join(',')
+  }
+  return qp
+})
+```
+
+<Warning>
+  The blocklist is sent as a query parameter to the API, so very long lists may cause performance issues. Limit to ~20-30 items.
+</Warning>
+
+### Highlight events with teacher
+
+Enable this option to **dim events without an assigned teacher**, making it easier to focus on confirmed courses.
+
+<Steps>
+  <Step title="Open settings">
+    Find **"Surligner les événements avec enseignant"** (Highlight events with teacher)
+  </Step>
+  <Step title="Toggle the switch">
+    Events without a teacher will appear grayed out
+  </Step>
+</Steps>
+
+```typescript
+// apps/web/src/composables/useSettings.ts
+const highlightTeacher = useLocalStorage<boolean>('settings.highlightTeacher', false)
+
+if (highlightTeacher.value) {
+  qp.highlightTeacher = 'true'
+}
+```
+
+This is a **backend-only** flag that affects the server response, not client-side styling.
+
+## Merge duplicate events
+
+When multiple plannings contain the same event (e.g., a shared lecture), PlanningSup can merge them into a single calendar entry.
+
+<Steps>
+  <Step title="Open settings">
+    Find **"Fusionner les événements dupliqués"** (Merge duplicate events)
+  </Step>
+  <Step title="Enable the toggle">
+    Duplicate events are merged client-side based on:
+    - Same start and end times
+    - Same title
+    - Same event type
+  </Step>
+</Steps>
+
+```typescript
+// apps/web/src/composables/usePlanningCalendar.ts
+const displayedEvents = computed(() =>
+  settings.mergeDuplicates.value 
+    ? mergeDuplicateEvents(planning.events.value) 
+    : planning.events.value,
+)
+```
+
+See `apps/web/src/utils/events.ts` for the merge algorithm.
+
+<Tip>
+  This is especially useful when combining multiple planning groups that share common courses.
+</Tip>
+
+## Timezone conversion
+
+If you're traveling or studying abroad, you can convert event times to a different timezone.
+
+<Steps>
+  <Step title="Open settings">
+    Navigate to **"Fuseau horaire"** (Timezone)
+  </Step>
+  <Step title="Select a timezone">
+    Choose from IANA timezones like:
+    - `Europe/Paris` (default)
+    - `America/New_York`
+    - `Asia/Tokyo`
+  </Step>
+  <Step title="Events are converted">
+    All times update automatically in the calendar
+  </Step>
+</Steps>
+
+```typescript
+// apps/web/src/composables/usePlanningCalendar.ts
+function mapApiEventToCalendarEvent(
+  event: EventWithFullId,
+  timezone: NonNullable<AllowedTimezones>,
+) {
+  const start = event.startDate.toTemporalInstant().toZonedDateTimeISO(timezone)
+  const end = event.endDate.toTemporalInstant().toZonedDateTimeISO(timezone)
+  // ...
+}
+```
+
+PlanningSup uses the [Temporal API](https://tc39.es/proposal-temporal/docs/) for accurate timezone handling.
+
+<Info>
+  The detected browser timezone is shown below the dropdown. If you leave the field empty, PlanningSup uses your browser's timezone by default.
+</Info>
+
+## Custom planning groups
+
+You can save frequently-used planning combinations as **custom groups** for quick access.
+
+<Steps>
+  <Step title="Select plannings">
+    In the planning picker, choose the plannings you want to group
+  </Step>
+  <Step title="Create a group">
+    Click **"Créer un groupe"** (Create group) and give it a name
+    
+    ```
+    Example: "Master 2 - All options"
+    ```
+  </Step>
+  <Step title="Switch groups quickly">
+    Click the group name in the picker to load all associated plannings at once
+  </Step>
+</Steps>
+
+```typescript
+// apps/web/src/composables/useSettings.ts
+interface CustomGroup {
+  id: `${string}-${string}-${string}-${string}-${string}` // UUID-v4
+  name: string
+  plannings: string[]
+}
+
+function addCustomGroup({ name, plannings }: { name: string, plannings: string[] }) {
+  const customGroup: CustomGroup = {
+    id: crypto.randomUUID(),
+    name,
+    plannings,
+  }
+  customGroups.value.push(customGroup)
+}
+```
+
+Custom groups are stored in `localStorage` and synced across devices when you're signed in.
+
+<Tip>
+  You can have up to 50 custom groups, each containing up to 100 plannings.
+</Tip>
+
+## Theme (light / dark)
+
+PlanningSup automatically detects your system theme preference and applies it to the calendar.
+
+- **Light mode**: White background with soft pastel colors
+- **Dark mode**: Dark gray background with muted colors
+
+To override the system preference:
+
+<Steps>
+  <Step title="Open settings">
+    Find **"Thème"** (Theme)
+  </Step>
+  <Step title="Choose a theme">
+    Select **Light**, **Dark**, or **Auto** (system default)
+  </Step>
+</Steps>
+
+```typescript
+// apps/web/src/composables/useTheme.ts
+const theme = useLocalStorage<'light' | 'dark' | 'auto'>('theme', 'auto')
+
+const isDark = computed(() => {
+  if (theme.value === 'auto') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  }
+  return theme.value === 'dark'
+})
+```
+
+The calendar updates instantly when you change the theme:
+
+```typescript
+// apps/web/src/composables/usePlanningCalendar.ts
+watch(uiIsDark, (isDark) => {
+  calendarApp.value?.setTheme(isDark ? 'dark' : 'light')
+})
+```
+
+## Show weekends in week view
+
+By default, the week view shows Monday to Friday (5 days). You can enable weekends to see Saturday and Sunday as well.
+
+<Steps>
+  <Step title="Open settings">
+    Find **"Afficher les week-ends"** (Show weekends)
+  </Step>
+  <Step title="Toggle the switch">
+    The week view expands to 7 columns
+  </Step>
+</Steps>
+
+```typescript
+// apps/web/src/composables/useSettings.ts
+const showWeekends = useLocalStorage<boolean>('settings.showWeekends', false)
+const weekNDays = computed(() => (showWeekends.value ? 7 : 5))
+```
+
+<Info>
+  This preference is synced across devices if you're signed in.
+</Info>
+
+## Export settings data
+
+All customization settings are stored in `localStorage` under keys like:
+
+```
+settings.colors
+settings.blocklist
+settings.highlightTeacher
+settings.showWeekends
+settings.mergeDuplicates
+settings.customGroups
+settings.targetTimezone
+```
+
+You can inspect or backup these values using your browser's developer tools:
+
+<CodeGroup>
+
+```javascript Browser console
+// View all settings
+Object.keys(localStorage).filter(k => k.startsWith('settings.'))
+
+// Export settings as JSON
+const settings = {}
+for (const key of Object.keys(localStorage)) {
+  if (key.startsWith('settings.')) {
+    settings[key] = localStorage.getItem(key)
+  }
+}
+console.log(JSON.stringify(settings, null, 2))
+```
+
+</CodeGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Offline mode" icon="wifi-slash" href="/guide/offline-mode">
+    Install the PWA for offline access
+  </Card>
+  <Card title="Sync preferences" icon="cloud" href="/guide/sync-preferences">
+    Learn how cross-device sync works
+  </Card>
+</CardGroup>

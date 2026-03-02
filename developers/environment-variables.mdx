@@ -1,0 +1,473 @@
+---
+title: Environment variables
+description: Complete reference of all environment variables for configuring PlanningSup
+---
+
+PlanningSup is configured through environment variables defined in `apps/api/.env`. This page documents all available options.
+
+## Quick reference
+
+Copy `.env.example` to `.env` and customize for your environment:
+
+```bash
+cp apps/api/.env.example apps/api/.env
+```
+
+## Database
+
+<ParamField path="DATABASE_URL" type="string" required>
+  PostgreSQL connection string.
+  
+  **Default (development):**
+  ```bash
+  DATABASE_URL=postgres://planningsup:mysecretpassword@localhost:5432/planningsup
+  ```
+  
+  **Production example:**
+  ```bash
+  DATABASE_URL=postgres://user:password@postgres:5432/planningsup
+  ```
+  
+  **Format:**
+  ```
+  postgres://username:password@host:port/database
+  ```
+</ParamField>
+
+<ParamField path="NO_MIGRATE_DATABASE" type="boolean" default="false">
+  Skip automatic database migrations on startup.
+  
+  ```bash
+  NO_MIGRATE_DATABASE=true
+  ```
+  
+  <Warning>
+  Only disable migrations if you're running them manually. The API expects the latest schema.
+  </Warning>
+</ParamField>
+
+## Server
+
+<ParamField path="PORT" type="number" default="20000">
+  Port the API server listens on.
+  
+  ```bash
+  PORT=20000
+  ```
+  
+  In Docker, this is typically `20000` internally, mapped to a different port externally:
+  ```yaml
+  ports:
+    - '31021:20000'
+  ```
+</ParamField>
+
+<ParamField path="PUBLIC_ORIGIN" type="string">
+  Public-facing URL of your PlanningSup instance. Required in production for:
+  - SEO (robots.txt, sitemap.xml)
+  - OAuth callbacks
+  - WebAuthn (passkey authentication)
+  
+  ```bash
+  PUBLIC_ORIGIN=https://planningsup.example.com
+  ```
+  
+  <Note>
+  Omit trailing slash. Use full URL including protocol.
+  </Note>
+</ParamField>
+
+<ParamField path="TRUSTED_ORIGINS" type="string">
+  Comma-separated list of origins allowed for CORS and OAuth redirects.
+  
+  **Development example:**
+  ```bash
+  TRUSTED_ORIGINS=http://localhost:1420,http://localhost:4444,http://localhost:20000,http://tauri.localhost,tauri://localhost,planningsup://auth-callback/discord
+  ```
+  
+  **Production example:**
+  ```bash
+  TRUSTED_ORIGINS=https://planningsup.example.com
+  ```
+  
+  <Info>
+  Include all frontend origins: web app, Tauri desktop app, browser extension deep links.
+  </Info>
+</ParamField>
+
+<ParamField path="NODE_ENV" type="string" default="development">
+  Environment mode. Set to `production` for production deployments.
+  
+  ```bash
+  NODE_ENV=production
+  ```
+  
+  Affects:
+  - Logging verbosity
+  - Error response details
+  - Static file serving
+  - OPS_TOKEN requirement
+</ParamField>
+
+## Authentication
+
+<ParamField path="AUTH_ENABLED" type="boolean" default="false">
+  Enable BetterAuth authentication features (OAuth, passkeys, user preferences sync).
+  
+  ```bash
+  AUTH_ENABLED=true
+  ```
+  
+  When enabled, requires additional auth variables below.
+</ParamField>
+
+<ParamField path="BETTER_AUTH_SECRET" type="string">
+  Secret key for signing authentication tokens. Required when `AUTH_ENABLED=true`.
+  
+  ```bash
+  BETTER_AUTH_SECRET=your-random-secret-key-here
+  ```
+  
+  <Warning>
+  Generate a strong random value (at least 32 characters). Never commit this to version control.
+  </Warning>
+</ParamField>
+
+<ParamField path="BETTER_AUTH_URL" type="string">
+  Base URL for BetterAuth endpoints. Should match your API URL.
+  
+  ```bash
+  BETTER_AUTH_URL=http://localhost:20000
+  ```
+  
+  In production:
+  ```bash
+  BETTER_AUTH_URL=https://planningsup.example.com
+  ```
+</ParamField>
+
+### OAuth providers
+
+<ParamField path="DISCORD_CLIENT_ID" type="string">
+  Discord OAuth application client ID.
+  
+  ```bash
+  DISCORD_CLIENT_ID=your-discord-client-id
+  ```
+  
+  Create an app at: https://discord.com/developers/applications
+</ParamField>
+
+<ParamField path="DISCORD_CLIENT_SECRET" type="string">
+  Discord OAuth application client secret.
+  
+  ```bash
+  DISCORD_CLIENT_SECRET=your-discord-client-secret
+  ```
+</ParamField>
+
+<ParamField path="GITHUB_CLIENT_ID" type="string">
+  GitHub OAuth application client ID.
+  
+  ```bash
+  GITHUB_CLIENT_ID=your-github-client-id
+  ```
+  
+  Create an app at: https://github.com/settings/developers
+</ParamField>
+
+<ParamField path="GITHUB_CLIENT_SECRET" type="string">
+  GitHub OAuth application client secret.
+  
+  ```bash
+  GITHUB_CLIENT_SECRET=your-github-client-secret
+  ```
+</ParamField>
+
+## Background jobs
+
+<ParamField path="RUN_JOBS" type="boolean" default="false">
+  Enable background job workers for planning refresh and backfill.
+  
+  ```bash
+  RUN_JOBS=true
+  ```
+  
+  Jobs:
+  - `plannings-backfill`: Ensures all plannings have database backups
+  - `plannings-refresh-worker`: Processes refresh queue for stale plannings
+</ParamField>
+
+<ParamField path="JOBS_QUIET_HOURS" type="string">
+  Time window to reduce job activity (e.g., overnight). Format: `HH:MM-HH:MM`.
+  
+  ```bash
+  JOBS_QUIET_HOURS=21:00-06:00
+  ```
+  
+  During quiet hours:
+  - Refresh intervals are extended
+  - Background activity is minimized
+  
+  <Info>
+  Times are in the server's local timezone.
+  </Info>
+</ParamField>
+
+<ParamField path="ALLOWED_JOBS" type="string">
+  Comma-separated list of jobs to run. Omit to run all jobs.
+  
+  ```bash
+  ALLOWED_JOBS=plannings-backfill,plannings-refresh-worker
+  ```
+  
+  Available jobs:
+  - `plannings-backfill`
+  - `plannings-refresh-worker`
+</ParamField>
+
+### Job tuning parameters
+
+<ParamField path="PLANNINGS_BACKFILL_INTERVAL_MS" type="number" default="600000">
+  Interval between backfill job runs (milliseconds).
+  
+  ```bash
+  PLANNINGS_BACKFILL_INTERVAL_MS=600000  # 10 minutes
+  ```
+</ParamField>
+
+<ParamField path="PLANNINGS_REFRESH_WORKER_MAX_POLL_MS" type="number" default="30000">
+  Maximum time refresh worker waits for queue items (milliseconds).
+  
+  ```bash
+  PLANNINGS_REFRESH_WORKER_MAX_POLL_MS=30000  # 30 seconds
+  ```
+</ParamField>
+
+<ParamField path="PLANNINGS_REFRESH_WORKER_MAX_ATTEMPTS" type="number" default="10">
+  Maximum retry attempts for failed planning refreshes.
+  
+  ```bash
+  PLANNINGS_REFRESH_WORKER_MAX_ATTEMPTS=10
+  ```
+</ParamField>
+
+## Operations
+
+<ParamField path="OPS_TOKEN" type="string">
+  Secret token for accessing operations endpoints (`/api/ops/*`).
+  
+  ```bash
+  OPS_TOKEN=your-secret-ops-token
+  ```
+  
+  Usage:
+  ```bash
+  curl -H "x-ops-token: your-secret-ops-token" https://planningsup.example.com/api/ops/plannings
+  ```
+  
+  <Info>
+  In production, `OPS_TOKEN` is required. In development, operations endpoints are open if `OPS_TOKEN` is not set.
+  </Info>
+</ParamField>
+
+## Planning data
+
+<ParamField path="PLANNINGS_LOCATION" type="string" default="/app/plannings">
+  Directory containing planning JSON files.
+  
+  **Default (Docker):**
+  ```bash
+  PLANNINGS_LOCATION=/app/plannings
+  ```
+  
+  **Development:**
+  ```bash
+  PLANNINGS_LOCATION=./resources/plannings
+  ```
+  
+  Planning files are loaded at startup from this directory.
+</ParamField>
+
+<ParamField path="WEB_DIST_LOCATION" type="string" default="/app/web/dist">
+  Directory containing built frontend static files.
+  
+  **Default (Docker):**
+  ```bash
+  WEB_DIST_LOCATION=/app/web/dist
+  ```
+  
+  In production, the API serves the PWA from this location.
+</ParamField>
+
+## Extensions and integrations
+
+<ParamField path="CHROME_EXTENSION_ID" type="string">
+  Chrome Web Store extension ID for browser extension integration.
+  
+  ```bash
+  CHROME_EXTENSION_ID=bcjhdlcgblcphljokeippholkfifdbod
+  ```
+  
+  Used for:
+  - Extension OAuth callbacks
+  - Deep link handling
+</ParamField>
+
+## Analytics
+
+<ParamField path="PLAUSIBLE_DOMAIN" type="string">
+  Domain name for Plausible Analytics tracking.
+  
+  ```bash
+  PLAUSIBLE_DOMAIN=planningsup.example.com
+  ```
+</ParamField>
+
+<ParamField path="PLAUSIBLE_ENDPOINT" type="string">
+  Custom Plausible Analytics endpoint URL.
+  
+  ```bash
+  PLAUSIBLE_ENDPOINT=https://plausible.example.com
+  ```
+  
+  Omit to use Plausible's default endpoint.
+</ParamField>
+
+## Complete example
+
+<CodeGroup>
+```bash Development
+# Database
+DATABASE_URL=postgres://planningsup:mysecretpassword@localhost:5432/planningsup
+
+# Server
+PORT=20000
+TRUSTED_ORIGINS=http://localhost:1420,http://localhost:4444,http://localhost:20000,http://tauri.localhost,tauri://localhost
+
+# Auth (disabled in dev)
+AUTH_ENABLED=false
+
+# Jobs
+RUN_JOBS=true
+JOBS_QUIET_HOURS=21:00-06:00
+```
+
+```bash Production
+# Database
+DATABASE_URL=postgres://planningsup:SECURE_PASSWORD@postgres:5432/planningsup
+
+# Server
+PORT=20000
+NODE_ENV=production
+PUBLIC_ORIGIN=https://planningsup.example.com
+TRUSTED_ORIGINS=https://planningsup.example.com
+
+# Auth
+AUTH_ENABLED=true
+BETTER_AUTH_SECRET=RANDOM_SECRET_KEY_AT_LEAST_32_CHARS
+BETTER_AUTH_URL=https://planningsup.example.com
+
+# OAuth providers
+DISCORD_CLIENT_ID=your_discord_client_id
+DISCORD_CLIENT_SECRET=your_discord_secret
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_secret
+
+# Jobs
+RUN_JOBS=true
+JOBS_QUIET_HOURS=21:00-06:00
+
+# Operations
+OPS_TOKEN=SECURE_OPS_TOKEN
+
+# Extensions
+CHROME_EXTENSION_ID=bcjhdlcgblcphljokeippholkfifdbod
+
+# Analytics
+PLAUSIBLE_DOMAIN=planningsup.example.com
+```
+</CodeGroup>
+
+## Environment-specific notes
+
+### Docker Compose
+
+Use `env_file` to load variables:
+
+```yaml
+services:
+  webapp:
+    image: ghcr.io/kernoeb/planningsup
+    env_file: webapp.env
+```
+
+### Kubernetes
+
+Use ConfigMaps and Secrets:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: planningsup-secrets
+type: Opaque
+stringData:
+  database-url: postgres://user:pass@postgres:5432/planningsup
+  better-auth-secret: your-secret-key
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: planningsup-config
+data:
+  PORT: "20000"
+  NODE_ENV: "production"
+  AUTH_ENABLED: "true"
+  RUN_JOBS: "true"
+```
+
+### Systemd service
+
+Use an environment file:
+
+```ini
+[Service]
+EnvironmentFile=/etc/planningsup/env
+ExecStart=/usr/local/bin/bun run start
+```
+
+## Security best practices
+
+<Warning>
+**Protect sensitive variables:**
+
+- Never commit `.env` files to version control
+- Use strong, randomly generated secrets for `BETTER_AUTH_SECRET` and `OPS_TOKEN`
+- Rotate secrets regularly
+- Use read-only file permissions: `chmod 600 .env`
+- In CI/CD, use encrypted secrets storage
+</Warning>
+
+<Info>
+**Recommended secret generation:**
+
+```bash
+# Generate 32-byte random secret
+openssl rand -base64 32
+
+# Or use a UUID
+uuidgen
+```
+</Info>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Self-hosting guide" icon="server" href="/developers/self-hosting">
+    Deploy PlanningSup on your own infrastructure
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/developers/architecture">
+    Understand how PlanningSup components work together
+  </Card>
+</CardGroup>

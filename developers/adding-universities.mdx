@@ -1,0 +1,426 @@
+---
+title: Adding universities
+description: Step-by-step guide to adding new universities and planning sources to PlanningSup
+---
+
+PlanningSup supports any institution that provides ICS (iCalendar) calendar feeds. This guide shows you how to add your university's planning data.
+
+## Prerequisites
+
+<Info>
+Your university must provide calendar data in one of these formats:
+- **ICS feed URLs** (most common)
+- **CELCAT/ADE planning systems**
+- **Custom calendar exports**
+</Info>
+
+## Planning JSON structure
+
+Planning files are stored in `resources/plannings/` as JSON files. Each file represents one institution.
+
+### Basic structure
+
+```json
+{
+  "title": "University Name",
+  "group": "City or Region",
+  "children": [
+    {
+      "id": "department",
+      "title": "Department Name",
+      "children": [
+        {
+          "id": "group-name",
+          "title": "Group Display Name",
+          "url": "https://planning.university.edu/ics/group.ics"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Field definitions
+
+<ParamField path="title" type="string" required>
+  Display name of the institution or group.
+</ParamField>
+
+<ParamField path="group" type="string">
+  Top-level grouping (usually city or region). Only used at the root level.
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Unique identifier within the parent. Must be:
+  - Lowercase
+  - No spaces (use hyphens)
+  - URL-safe characters only
+  
+  Example: `first-year-group-a`
+</ParamField>
+
+<ParamField path="url" type="string">
+  ICS calendar feed URL. Only present on leaf nodes (actual plannings).
+  
+  **Supported URL formats:**
+  - Direct ICS URLs: `https://example.com/calendar.ics`
+  - CELCAT .shu URLs: `https://planning.example.com/jsp/custom/modules/plannings/abc123.shu`
+  - Template URLs with date ranges: `https://example.com/export.ics?start={date-start}&end={date-end}`
+</ParamField>
+
+<ParamField path="children" type="array">
+  Nested sub-groups or plannings. Can be nested arbitrarily deep.
+</ParamField>
+
+## Real-world example
+
+Here's a simplified excerpt from `enscr.json`:
+
+```json
+{
+  "title": "ENSCR",
+  "group": "Rennes",
+  "children": [
+    {
+      "id": "cycleingenieur",
+      "title": "Cycle Ingénieur",
+      "children": [
+        {
+          "id": "1iereanneeci",
+          "title": "1ière année CI",
+          "children": [
+            {
+              "id": "elevesing1iereannee",
+              "title": "Elèves Ing. 1ière année",
+              "url": "https://planning.ensc-rennes.fr/jsp/custom/modules/plannings/XmWbdXY2.shu"
+            },
+            {
+              "id": "groupesdelangues",
+              "title": "Groupes de langues",
+              "children": [
+                {
+                  "id": "gr1anglais",
+                  "title": "Gr. 1 Anglais",
+                  "url": "https://planning.ensc-rennes.fr/jsp/custom/modules/plannings/Qo35vbYR.shu"
+                },
+                {
+                  "id": "gr2anglais",
+                  "title": "Gr. 2 Anglais",
+                  "url": "https://planning.ensc-rennes.fr/jsp/custom/modules/plannings/kKW76znM.shu"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Full ID format
+
+Internally, PlanningSup creates a `fullId` by joining all parent IDs:
+
+```
+enscr.cycleingenieur.1iereanneeci.groupesdelangues.gr1anglais
+```
+
+This full ID is used in API requests:
+
+```bash
+GET /api/plannings/enscr.cycleingenieur.1iereanneeci.groupesdelangues.gr1anglais?events=true
+```
+
+## Adding your university
+
+<Steps>
+  <Step title="Find ICS URLs">
+    Locate your university's planning system. Common systems:
+    
+    - **CELCAT** - Look for `.shu` export URLs
+    - **ADE** - Check for ICS export options
+    - **Custom systems** - Contact IT department
+    
+    Test URLs in your browser to ensure they return valid ICS data.
+  </Step>
+  
+  <Step title="Create JSON file">
+    Create a new file in `resources/plannings/` named after your institution:
+    
+    ```bash
+    touch resources/plannings/my-university.json
+    ```
+    
+    <Info>
+    Use lowercase with hyphens: `university-of-example.json`
+    </Info>
+  </Step>
+  
+  <Step title="Structure your data">
+    Organize plannings hierarchically. Common structures:
+    
+    <Tabs>
+      <Tab title="By department">
+        ```json
+        {
+          "title": "University Name",
+          "group": "City",
+          "children": [
+            {
+              "id": "computer-science",
+              "title": "Computer Science",
+              "children": [...]
+            },
+            {
+              "id": "mathematics",
+              "title": "Mathematics",
+              "children": [...]
+            }
+          ]
+        }
+        ```
+      </Tab>
+      
+      <Tab title="By year">
+        ```json
+        {
+          "title": "University Name",
+          "group": "City",
+          "children": [
+            {
+              "id": "first-year",
+              "title": "First Year",
+              "children": [...]
+            },
+            {
+              "id": "second-year",
+              "title": "Second Year",
+              "children": [...]
+            }
+          ]
+        }
+        ```
+      </Tab>
+      
+      <Tab title="By program">
+        ```json
+        {
+          "title": "University Name",
+          "group": "City",
+          "children": [
+            {
+              "id": "bachelor",
+              "title": "Bachelor Programs",
+              "children": [...]
+            },
+            {
+              "id": "master",
+              "title": "Master Programs",
+              "children": [...]
+            }
+          ]
+        }
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+  
+  <Step title="Validate JSON">
+    Run the validation script:
+    
+    ```bash
+    node scripts/check-plannings-json.js
+    ```
+    
+    This checks for:
+    - Valid JSON syntax
+    - Required fields
+    - Unique IDs
+    - Valid URL formats
+  </Step>
+  
+  <Step title="Test locally">
+    Start the development server:
+    
+    ```bash
+    bun dev
+    ```
+    
+    Navigate to `http://localhost:4444` and:
+    1. Find your university in the planning selector
+    2. Select a planning group
+    3. Verify events load correctly
+    4. Check that event details are accurate
+  </Step>
+  
+  <Step title="Submit pull request">
+    Create a pull request with your changes:
+    
+    ```bash
+    git checkout -b add-my-university
+    git add resources/plannings/my-university.json
+    git commit -m "add: support for My University"
+    git push origin add-my-university
+    ```
+    
+    Open a PR on GitHub with:
+    - Description of the university/institution
+    - Number of plannings added
+    - Any special notes about the data format
+  </Step>
+</Steps>
+
+## Helper scripts
+
+PlanningSup includes scripts to automate URL generation for certain systems.
+
+### SHU generator (CELCAT)
+
+If your university uses CELCAT with `resources=123` URLs, use the SHU generator:
+
+```bash
+node scripts/shu-generator.js my-university.json
+```
+
+This script:
+1. Reads your JSON file
+2. Extracts project IDs from `resources=123` URLs
+3. Calls the CELCAT API to generate `.shu` URLs
+4. Replaces URLs in place
+5. Creates a `.backup` file
+
+<Warning>
+You must configure the script with your university's domain and session cookie. See `scripts/shu-generator.js` for details.
+</Warning>
+
+### CELCAT fetch
+
+For bulk CELCAT planning discovery:
+
+```bash
+node scripts/celcat-fetch.js
+```
+
+This helps extract planning structures from CELCAT systems.
+
+## Advanced URL features
+
+### Date range templates
+
+Some systems require date ranges in the URL. Use template variables:
+
+```json
+{
+  "id": "my-planning",
+  "title": "My Planning",
+  "url": "https://example.com/export.ics?start={date-start}&end={date-end}"
+}
+```
+
+PlanningSup automatically replaces:
+- `{date-start}` - Start date (default: 1 month ago)
+- `{date-end}` - End date (default: 2 years in the future)
+
+Clients can override these with `?from=` and `?to=` query parameters:
+
+```bash
+GET /api/plannings/host.planning-id?events=true&from=2026-01-01&to=2026-12-31
+```
+
+## Best practices
+
+<Info>
+**Organizing plannings:**
+
+- Keep hierarchy shallow (3-4 levels max)
+- Use clear, descriptive titles
+- Group logically (by department, year, or program)
+- Avoid duplicate IDs at any level
+- Test all URLs before submitting
+</Info>
+
+<Warning>
+**Common mistakes:**
+
+- Using spaces in IDs (use `my-group`, not `my group`)
+- Uppercase in IDs (use `first-year`, not `First-Year`)
+- Forgetting to validate JSON syntax
+- Including private/authenticated URLs
+- Extremely deep nesting (makes UI hard to navigate)
+</Warning>
+
+## Troubleshooting
+
+### Events not loading
+
+Check that:
+1. URL returns valid ICS data (test in browser)
+2. URL is publicly accessible (no authentication required)
+3. ICS format is valid (use an ICS validator)
+
+### Duplicate IDs error
+
+Ensure all `id` fields are unique within their parent:
+
+```json
+// Bad - duplicate "group-a" ID
+{
+  "children": [
+    { "id": "group-a", "title": "Group A" },
+    { "id": "group-a", "title": "Another Group A" }
+  ]
+}
+
+// Good - unique IDs
+{
+  "children": [
+    { "id": "group-a", "title": "Group A" },
+    { "id": "group-a-bis", "title": "Group A (Bis)" }
+  ]
+}
+```
+
+### Validation fails
+
+Run the validator for detailed error messages:
+
+```bash
+node scripts/check-plannings-json.js
+```
+
+Common issues:
+- Missing required fields (`id`, `title`)
+- Invalid JSON syntax (trailing commas, missing quotes)
+- Invalid URL format
+
+## Examples from existing universities
+
+Study these files for inspiration:
+
+- **`enscr.json`** - Complex nested structure with multiple levels
+- **`fac-de-sciences.json`** - Simple department-based organization
+- **`esir.json`** - Year-based grouping
+
+## Getting help
+
+If you need assistance adding your university:
+
+1. **Open an issue** on GitHub with your planning structure
+2. **Contact @kernoeb** on [Telegram](https://t.me/kernoeb) or Discord
+3. **Check existing PRs** for similar universities
+
+<Info>
+The maintainer can help you structure your data or troubleshoot URL issues.
+</Info>
+
+## After your PR is merged
+
+Once your pull request is merged:
+
+1. Your university appears in the next release
+2. Users can select your plannings from the UI
+3. Events are automatically backed up to the database
+4. Background jobs keep data fresh
+
+Thank you for contributing to PlanningSup!

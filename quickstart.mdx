@@ -1,80 +1,145 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get your university calendar up and running in under 2 minutes
 ---
 
-## Get started in three steps
+# Quickstart
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through setting up PlanningSup and viewing your first calendar.
 
-### Step 1: Set up your local environment
+## Access PlanningSup
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+You can use PlanningSup in three ways:
+
+<Tabs>
+  <Tab title="Web app">
+    Visit [planningsup.app](https://planningsup.app) in your browser. No installation required.
+  </Tab>
+  <Tab title="Browser extension">
+    Install the [Chrome extension](https://chromewebstore.google.com/detail/planningsup/bcjhdlcgblcphljokeippholkfifdbod) for quick access from your toolbar.
+  </Tab>
+  <Tab title="PWA (recommended)">
+    On mobile or desktop, tap the install prompt or use your browser's "Install app" option for an offline-capable native experience.
+  </Tab>
+</Tabs>
+
+## Select your planning
+
+When you first open PlanningSup, you'll see the welcome screen:
+
+<Steps>
+  <Step title="Open the planning picker">
+    Click **"Choisir mon planning"** (Choose my planning) or press the `U` key
+  </Step>
+  <Step title="Search for your university">
+    Use the search bar to filter by university name, department, or program
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```
+    Example: "INSA Rennes" or "IUT Vannes"
+    ```
+  </Step>
+  <Step title="Browse the planning tree">
+    Expand groups to find your specific year and section
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    <Tip>Most universities organize plannings as: **University > Department > Year > Group**</Tip>
+  </Step>
+  <Step title="Select one or more plannings">
+    Click the checkbox next to your planning. You can select multiple plannings to merge them into a single calendar view.
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    <Info>Multi-planning is useful for students with options across multiple groups</Info>
+  </Step>
+  <Step title="Close the picker">
+    Click outside the dialog or press `Esc`. Your calendar will load immediately.
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Navigate your calendar
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+Once your planning is loaded, you can:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card icon="arrow-left">
+    **Previous period**
+    
+    Press `←` or click the left arrow in the calendar controls
+  </Card>
+  <Card icon="arrow-right">
+    **Next period**
+    
+    Press `→` or click the right arrow in the calendar controls
+  </Card>
+  <Card icon="calendar-day">
+    **Change view**
+    
+    Switch between Day / Week / Month Grid / Month Agenda views
+  </Card>
+  <Card icon="calendar-check">
+    **Go to today**
+    
+    Click "Aujourd'hui" (Today) to jump to the current date
+  </Card>
 </CardGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  The calendar automatically refreshes:
+  - On page load
+  - When the window regains focus
+  - Every 5 minutes in the background
 </Note>
+
+## View event details
+
+Click any event in your calendar to see:
+
+- Event title and type (lecture, lab, tutorial)
+- Start and end times
+- Location (room or building)
+- Teacher name (if available)
+- Additional notes
+
+## Optional: Sign in for sync
+
+By default, your planning selection and preferences are stored **locally** in your browser. To sync them across devices:
+
+<Steps>
+  <Step title="Open the user menu">
+    Click your avatar or the login button in the top-right corner
+  </Step>
+  <Step title="Choose a provider">
+    Sign in with Discord or GitHub
+    
+    <Tip>You can also use **passkeys** (WebAuthn) for passwordless authentication on the web version</Tip>
+  </Step>
+  <Step title="Authorize the app">
+    Grant PlanningSup access to your account (we only read your profile)
+  </Step>
+</Steps>
+
+Once signed in, your settings will sync automatically:
+
+- Selected plannings
+- Custom colors
+- Event blocklist
+- Custom planning groups
+- UI preferences (show weekends, merge duplicates, etc.)
+
+<Warning>
+  On mobile or extension platforms, passkeys are not supported. Use social login instead.
+</Warning>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Calendar views" icon="calendar" href="/guide/calendar-views">
+    Master day, week, and month views with keyboard shortcuts
+  </Card>
+  <Card title="Customization" icon="palette" href="/guide/customization">
+    Personalize colors, filters, and event display
+  </Card>
+  <Card title="Offline mode" icon="wifi-slash" href="/guide/offline-mode">
+    Install the PWA for offline access
+  </Card>
+  <Card title="Sync preferences" icon="cloud" href="/guide/sync-preferences">
+    Learn how cross-device sync works
+  </Card>
+</CardGroup>

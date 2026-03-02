@@ -1,0 +1,524 @@
+---
+title: Contributing
+description: Guide for contributing code, features, and bug fixes to PlanningSup
+---
+
+Thank you for your interest in contributing to PlanningSup! This guide will help you get started with development and understand our workflows.
+
+## Getting started
+
+<Steps>
+  <Step title="Fork and clone the repository">
+    ```bash
+    git clone https://github.com/YOUR_USERNAME/planningsup.git
+    cd planningsup
+    ```
+  </Step>
+  
+  <Step title="Install dependencies">
+    PlanningSup uses Bun as the primary runtime and package manager.
+    
+    ```bash
+    # Install Bun (if not already installed)
+    curl -fsSL https://bun.sh/install | bash
+    
+    # Install project dependencies
+    bun install
+    ```
+    
+    <Info>
+    The project specifies the required Bun version in `.bun-version`. Bun will automatically use this version.
+    </Info>
+  </Step>
+  
+  <Step title="Configure environment">
+    ```bash
+    cp apps/api/.env.example apps/api/.env
+    ```
+    
+    The default configuration works for local development with Docker Compose.
+  </Step>
+  
+  <Step title="Start development environment">
+    ```bash
+    bun dev
+    ```
+    
+    This command:
+    - Starts PostgreSQL via Docker Compose
+    - Runs database migrations
+    - Starts the API server on `http://localhost:20000`
+    - Starts the web app on `http://localhost:4444`
+  </Step>
+</Steps>
+
+## Project structure
+
+PlanningSup is a Bun workspace monorepo:
+
+```
+planningsup/
+├── apps/
+│   ├── api/          # Elysia API server + Drizzle ORM
+│   ├── web/          # Vue 3 PWA frontend
+│   ├── app/          # Tauri desktop/mobile app
+│   └── extension/    # Browser extension
+├── packages/
+│   ├── config/       # Shared build configs (Vite, TypeScript)
+│   └── libs/         # Shared utilities and types
+├── resources/
+│   └── plannings/    # Planning JSON files by university
+├── scripts/          # Build and utility scripts
+└── test/             # Unit, integration, and E2E tests
+```
+
+### Key directories
+
+<Tabs>
+  <Tab title="apps/api">
+    **Elysia API server**
+    
+    - `src/index.ts` - Server entry point
+    - `src/api.ts` - API route setup
+    - `src/routes/` - Route handlers
+    - `src/db/` - Drizzle schema and queries
+    - `src/jobs/` - Background workers
+    - `src/utils/` - Event parsing, auth, logging
+    - `drizzle/` - SQL migrations
+  </Tab>
+  
+  <Tab title="apps/web">
+    **Vue 3 PWA**
+    
+    - `src/main.ts` - App entry point
+    - `src/App.vue` - Root component
+    - `src/components/` - UI components
+    - `src/composables/` - Vue composables (including useUserPrefsSync)
+    - `src/stores/` - State management
+    - `public/` - Static assets
+  </Tab>
+  
+  <Tab title="resources/plannings">
+    **Planning data**
+    
+    Each JSON file represents a university/institution with nested planning structures.
+    
+    Example: `enscr.json`, `fac-de-sciences.json`
+  </Tab>
+  
+  <Tab title="test/">
+    **Test suites**
+    
+    - `*.test.ts` - Unit tests (Bun test)
+    - `integration/*.test.ts` - Integration tests (API + DB)
+    - `e2e/*.spec.ts` - End-to-end tests (Playwright)
+  </Tab>
+</Tabs>
+
+## Development workflow
+
+### Working on the API
+
+```bash
+# Start only the API
+cd apps/api
+bun run dev
+
+# Run type checking
+bun run typecheck
+
+# Generate Drizzle types after schema changes
+bun run generate-drizzle
+
+# Generate BetterAuth types after auth schema changes
+bun run generate-better-auth
+```
+
+### Working on the web app
+
+```bash
+# Start only the web app
+cd apps/web
+bun run dev
+
+# Build for production
+bun run build
+
+# Preview production build
+bun run preview
+```
+
+### Working on the browser extension
+
+```bash
+cd apps/extension
+bun run dev      # Development build
+bun run build    # Production build
+```
+
+<Note>
+Extension scripts don't participate in root-level `bun dev`. You must run them from the `apps/extension` directory.
+</Note>
+
+## Testing
+
+### Unit tests
+
+Unit tests use Bun's built-in test runner:
+
+```bash
+# Run all unit tests
+bun run test:unit
+
+# Run specific test file
+bun test test/jobs.test.ts
+
+# Watch mode
+bun test test/jobs.test.ts --watch
+
+# Filter by test name
+bun test test/jobs.test.ts --test-name-pattern "quiet hours"
+```
+
+### Integration tests
+
+Integration tests run against Docker containers:
+
+<Tabs>
+  <Tab title="Without auth">
+    ```bash
+    # Full run (builds image, starts stack, runs tests, cleans up)
+    bun run test:integration
+    
+    # Skip Docker build (faster iteration)
+    bun run test:integration:local
+    
+    # Keep containers running for debugging
+    bun run test:integration -- --no-cleanup --verbose
+    ```
+    
+    Tests run on `http://localhost:20000`
+  </Tab>
+  
+  <Tab title="With auth">
+    ```bash
+    # Full run with AUTH_ENABLED=true
+    bun run test:integration:auth
+    
+    # Skip Docker build
+    bun run test:integration:auth:local
+    
+    # Keep containers running
+    bun run test:integration:auth -- --no-cleanup --verbose
+    ```
+    
+    Tests run on `http://localhost:20001`
+  </Tab>
+</Tabs>
+
+### End-to-end tests
+
+E2E tests use Playwright:
+
+```bash
+# Run E2E tests (Chrome only)
+bun run test:e2e
+
+# Include Safari/WebKit
+bun run test:e2e:safari
+
+# Headed mode (visible browser)
+bun run test:e2e:headed
+
+# Debug mode (step through tests)
+bun run test:e2e:debug
+
+# Custom flags
+bun run test:e2e -- --workers 2 --headed
+```
+
+<Info>
+Playwright browsers are automatically installed on first run. The script creates `.playwright-browsers-installed` as a marker.
+</Info>
+
+### Running all quality checks
+
+```bash
+# Run linting, type checking, and unit tests
+bun run lint-fix && bun run lint && bun run typecheck && bun run test:unit
+
+# Or use the Docker build (includes all checks + build)
+bun run docker:build
+```
+
+## Code quality
+
+### Linting
+
+```bash
+# Check for issues
+bun run lint
+
+# Fix auto-fixable issues
+bun run lint-fix
+```
+
+### Type checking
+
+```bash
+# Check all workspaces
+bun run typecheck
+
+# Check specific workspace
+cd apps/api
+bun run typecheck
+```
+
+<Warning>
+**Important:** There are NO colon-namespaced commands like `bun run typecheck:web` or `bun run lint:api`. Always use `cd <workspace> && bun run <script>`.
+</Warning>
+
+## Database changes
+
+### Creating migrations
+
+<Steps>
+  <Step title="Modify the schema">
+    Edit `apps/api/src/db/schemas/*.ts`
+  </Step>
+  
+  <Step title="Generate migration">
+    ```bash
+    cd apps/api
+    bun run generate-drizzle
+    ```
+    
+    This creates a new SQL file in `apps/api/drizzle/`
+  </Step>
+  
+  <Step title="Review migration">
+    Check the generated SQL to ensure it matches your intent.
+  </Step>
+  
+  <Step title="Test migration">
+    Restart the API to apply migrations:
+    ```bash
+    bun dev
+    ```
+  </Step>
+</Steps>
+
+### Updating auth schema
+
+If you modify `apps/api/src/db/schemas/auth.ts`:
+
+```bash
+cd apps/api
+bun run generate-drizzle
+bun run generate-better-auth
+```
+
+## Making commits
+
+### Commit message style
+
+Follow the existing commit message style:
+
+```bash
+# Good examples
+git commit -m "add: support for custom timezone conversion"
+git commit -m "fix: planning refresh queue deadlock"
+git commit -m "update: improve error handling in event parser"
+git commit -m "docs: clarify environment variable usage"
+```
+
+Prefixes:
+- `add:` - New feature or capability
+- `update:` - Enhancement to existing feature
+- `fix:` - Bug fix
+- `refactor:` - Code restructuring
+- `docs:` - Documentation changes
+- `test:` - Test additions or fixes
+- `chore:` - Maintenance tasks
+
+### Pre-commit checklist
+
+- [ ] Code passes linting: `bun run lint`
+- [ ] Code passes type checking: `bun run typecheck`
+- [ ] Unit tests pass: `bun run test:unit`
+- [ ] Integration tests pass (if applicable): `bun run test:integration`
+- [ ] Changes are documented (if user-facing)
+
+## Submitting pull requests
+
+<Steps>
+  <Step title="Create a feature branch">
+    ```bash
+    git checkout -b feature/my-new-feature
+    ```
+  </Step>
+  
+  <Step title="Make your changes">
+    Write code, add tests, update documentation.
+  </Step>
+  
+  <Step title="Test thoroughly">
+    Run all relevant tests:
+    ```bash
+    bun run lint-fix
+    bun run lint
+    bun run typecheck
+    bun run test:unit
+    bun run test:integration
+    ```
+  </Step>
+  
+  <Step title="Commit and push">
+    ```bash
+    git add .
+    git commit -m "add: description of your feature"
+    git push origin feature/my-new-feature
+    ```
+  </Step>
+  
+  <Step title="Open pull request">
+    Open a PR on GitHub with:
+    - Clear description of changes
+    - Screenshots (for UI changes)
+    - Related issue numbers
+    - Testing steps
+  </Step>
+</Steps>
+
+### PR review process
+
+1. **Automated checks** - GitHub Actions runs linting, type checking, tests, and builds
+2. **Code review** - Maintainers review your code
+3. **Feedback** - Address any requested changes
+4. **Merge** - Once approved, your PR will be merged
+
+## Adding universities
+
+See the dedicated [Adding Universities](/developers/adding-universities) guide for detailed instructions on contributing new planning sources.
+
+Quick summary:
+
+<Steps>
+  <Step title="Create JSON file">
+    Add a new file to `resources/plannings/` following the existing structure.
+  </Step>
+  
+  <Step title="Validate JSON">
+    ```bash
+    node scripts/check-plannings-json.js
+    ```
+  </Step>
+  
+  <Step title="Test locally">
+    ```bash
+    bun dev
+    ```
+    
+    Verify your planning appears in the UI and events load correctly.
+  </Step>
+  
+  <Step title="Submit PR">
+    Open a pull request with your new planning file.
+  </Step>
+</Steps>
+
+## CI/CD pipeline
+
+### GitHub Actions workflows
+
+**`.github/workflows/docker-publish.yml`**
+
+Main CI/CD pipeline:
+1. Build Docker image (includes lint, typecheck, build, unit tests)
+2. Run integration tests (auth disabled)
+3. Run integration tests (auth enabled)
+4. Run E2E tests (only when UI files change)
+5. Publish image (only on `main`, `dev`, or `vX.Y.Z` tags)
+
+**`.github/workflows/extension-build.yml`**
+
+Builds the browser extension.
+
+### Validating workflows locally
+
+```bash
+bun run validate:workflows
+```
+
+This checks workflow syntax without pushing to GitHub.
+
+## Release process
+
+Releases are handled by maintainers using the `release` script:
+
+```bash
+# Must be on main branch with clean working tree
+git checkout main
+git pull origin main
+
+# Bump version and create tag
+bun run release patch  # or minor, major
+
+# Push with tags
+git push --follow-tags
+```
+
+This:
+1. Bumps version in `package.json` files
+2. Creates a git tag (`vX.Y.Z`)
+3. GitHub Actions builds and publishes the Docker image
+
+## Development tools
+
+### Recommended VSCode extensions
+
+- **ESLint** - Linting support
+- **Vue Language Features (Volar)** - Vue 3 support
+- **Tailwind CSS IntelliSense** - CSS class suggestions
+- **Bun for Visual Studio Code** - Bun runtime support
+
+### Useful commands
+
+```bash
+# Remove all node_modules
+./scripts/remove-node-modules.sh
+
+# Check planning JSON files
+node scripts/check-plannings-json.js
+
+# Build everything
+bun run build
+
+# Clean Docker resources
+docker compose -f docker-compose.test.yml down -v --remove-orphans
+```
+
+## Getting help
+
+<CardGroup cols={2}>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/kernoeb/planningsup/issues">
+    Report bugs or request features
+  </Card>
+  <Card title="Telegram" icon="telegram" href="https://t.me/kernoeb">
+    Chat with the maintainer (@kernoeb)
+  </Card>
+  <Card title="Discord" icon="discord">
+    Message kernoeb on Discord
+  </Card>
+  <Card title="Documentation" icon="book" href="/developers/architecture">
+    Learn about the architecture
+  </Card>
+</CardGroup>
+
+## Contributor recognition
+
+All contributors are listed in the README. Thank you to everyone who has contributed!
+
+<Info>
+If you've donated to support PlanningSup, you're also recognized in the README's donors section.
+</Info>

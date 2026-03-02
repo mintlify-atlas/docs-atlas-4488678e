@@ -1,0 +1,291 @@
+---
+title: Offline mode
+description: Install the PWA and access your university calendar without an internet connection
+---
+
+# Offline mode
+
+PlanningSup is a **Progressive Web App (PWA)**, which means you can install it on your device and use it offline. This is powered by a **Service Worker** that caches your calendar data and app assets.
+
+## Benefits of offline mode
+
+<CardGroup cols={2}>
+  <Card icon="wifi-slash">
+    **No internet required**
+    
+    View your cached calendar even in areas with poor connectivity
+  </Card>
+  <Card icon="bolt">
+    **Instant loading**
+    
+    The app loads from cache instead of the network
+  </Card>
+  <Card icon="mobile">
+    **Native app experience**
+    
+    Installed PWAs appear in your app drawer and taskbar
+  </Card>
+  <Card icon="hard-drive">
+    **Automatic updates**
+    
+    New versions install in the background when you're online
+  </Card>
+</CardGroup>
+
+## Installing the PWA
+
+### On mobile (Android / iOS)
+
+<Tabs>
+  <Tab title="Android (Chrome / Edge)">
+    <Steps>
+      <Step title="Open PlanningSup">
+        Visit [planningsup.app](https://planningsup.app) in Chrome or Edge
+      </Step>
+      <Step title="Tap the install prompt">
+        A banner appears at the bottom: **"Add PlanningSup to Home screen"**
+      </Step>
+      <Step title="Confirm installation">
+        Tap **"Install"** or **"Add"**
+      </Step>
+      <Step title="Launch the app">
+        Find the PlanningSup icon in your app drawer
+      </Step>
+    </Steps>
+    
+    <Tip>
+      If the banner doesn't appear, tap the menu (⋮) → **"Add to Home screen"** or **"Install app"**.
+    </Tip>
+  </Tab>
+  <Tab title="iOS (Safari)">
+    <Steps>
+      <Step title="Open PlanningSup">
+        Visit [planningsup.app](https://planningsup.app) in Safari
+      </Step>
+      <Step title="Tap the Share button">
+        Tap the Share icon (square with arrow) in the bottom toolbar
+      </Step>
+      <Step title="Select 'Add to Home Screen'">
+        Scroll down and tap **"Add to Home Screen"**
+      </Step>
+      <Step title="Confirm the name">
+        Leave the name as "PlanningSup" and tap **"Add"**
+      </Step>
+      <Step title="Launch the app">
+        Find the PlanningSup icon on your home screen
+      </Step>
+    </Steps>
+    
+    <Warning>
+      iOS Safari does not display an automatic install banner. You must use the Share menu.
+    </Warning>
+  </Tab>
+</Tabs>
+
+### On desktop (Windows / macOS / Linux)
+
+<Tabs>
+  <Tab title="Chrome / Edge">
+    <Steps>
+      <Step title="Open PlanningSup">
+        Visit [planningsup.app](https://planningsup.app) in Chrome or Edge
+      </Step>
+      <Step title="Click the install icon">
+        Look for the install icon (⊕ or computer) in the address bar
+      </Step>
+      <Step title="Confirm installation">
+        Click **"Install"** in the popup
+      </Step>
+      <Step title="Launch the app">
+        PlanningSup opens in a standalone window without browser chrome
+      </Step>
+    </Steps>
+    
+    <Tip>
+      You can also go to **Menu → Install PlanningSup** or **Apps → Install this site as an app**.
+    </Tip>
+  </Tab>
+  <Tab title="Safari (macOS)">
+    <Steps>
+      <Step title="Open PlanningSup">
+        Visit [planningsup.app](https://planningsup.app) in Safari
+      </Step>
+      <Step title="Add to Dock">
+        Go to **File → Add to Dock**
+      </Step>
+      <Step title="Launch the app">
+        Click the PlanningSup icon in your Dock
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="Firefox">
+    <Warning>
+      Firefox does not support PWA installation on desktop. Use Chrome, Edge, or Safari instead, or access PlanningSup as a regular web page.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## How offline mode works
+
+PlanningSup uses a **Service Worker** to cache:
+
+1. **App shell**: HTML, CSS, JavaScript, fonts, and images
+2. **Calendar data**: Events fetched from the API (stored in IndexedDB)
+3. **User preferences**: Settings, colors, and filters (stored in localStorage)
+
+### Service Worker registration
+
+```typescript
+// apps/web/src/composables/usePwa.ts
+import { useRegisterSW } from 'virtual:pwa-register/vue'
+
+const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW({
+  immediate: true,
+  onRegisteredSW(swUrl, r) {
+    // Check for updates every hour
+    setInterval(async () => {
+      if ('onLine' in navigator && !navigator.onLine) return
+      const resp = await fetch(swUrl, { cache: 'no-store' })
+      if (resp?.status === 200) await r.update()
+    }, 60 * 60 * 1000) // 1 hour
+  },
+})
+```
+
+The Service Worker is configured in `apps/web/vite.config.ts` using [vite-plugin-pwa](https://vite-pwa-org.netlify.app/).
+
+### Offline-first data strategy
+
+When you load a planning, PlanningSup follows this strategy:
+
+<Steps>
+  <Step title="Check for cached data">
+    If events are in IndexedDB (from a previous fetch), display them immediately
+  </Step>
+  <Step title="Fetch from network in background">
+    PlanningSup tries to fetch fresh data from the API
+  </Step>
+  <Step title="Update the UI if newer data is available">
+    If the network fetch succeeds and returns newer events, the calendar updates
+  </Step>
+  <Step title="Fall back to cache if offline">
+    If the network request fails (e.g., no internet), the cached data remains visible
+  </Step>
+</Steps>
+
+```typescript
+// apps/web/src/composables/usePlanningData.ts
+// Phase 1: Fast database-only fetch (parallel)
+if (shouldHydrateFromDb) {
+  const dbResults = await Promise.allSettled(
+    needsDbHydrationIds.map(fullId =>
+      client.api.plannings({ fullId }).get({
+        query: { events: 'true', onlyDb: 'true' },
+      }),
+    ),
+  )
+  // Update UI immediately with DB data
+}
+
+// Phase 2: Network fetch (parallel, update UI as each completes)
+for (const fullId of fullIds) {
+  client.api.plannings({ fullId }).get({
+    query: { events: 'true' },
+  }).then(res => handleNetworkResult(fullId, res))
+}
+```
+
+See `apps/web/src/composables/usePlanningData.ts:181-357` for the full implementation.
+
+## Offline indicator
+
+When you're offline, PlanningSup displays a toast notification:
+
+> **Hors connexion** — Vous consultez des données mises en cache.
+
+This appears automatically when:
+- The browser detects no network connection
+- A network request fails
+
+The indicator disappears when connectivity is restored.
+
+## Update notifications
+
+When a new version of PlanningSup is available, you'll see a toast:
+
+> **Nouvelle version disponible** — Cliquez pour mettre à jour.
+
+Click the toast to reload the app with the latest code.
+
+```typescript
+// apps/web/src/composables/usePwa.ts
+watch(needRefresh, (value) => {
+  if (value) console.info('[PWA] Nouvelle version disponible (rechargement requis)')
+})
+```
+
+<Info>
+  Updates install in the background and don't interrupt your current session. The new version activates when you reload the page or close the app.
+</Info>
+
+## Clearing offline data
+
+If you need to reset your offline cache:
+
+<Steps>
+  <Step title="Open browser settings">
+    Go to **Settings → Privacy → Site data** (or similar)
+  </Step>
+  <Step title="Find planningsup.app">
+    Search for "planningsup" in the list of sites
+  </Step>
+  <Step title="Clear site data">
+    Delete cookies, cache, and IndexedDB data
+  </Step>
+  <Step title="Reload the app">
+    Refresh the page to fetch fresh data
+  </Step>
+</Steps>
+
+Alternatively, uninstall the PWA and reinstall it to start fresh.
+
+## Limitations of offline mode
+
+<Warning>
+  Offline mode has some limitations:
+  
+  - **No real-time updates**: Cached events may be outdated if your schedule changes
+  - **Limited to cached plannings**: Only plannings you've viewed while online are cached
+  - **Sign-in required for sync**: Offline changes to settings do not sync until you're online again
+</Warning>
+
+## Checking offline status
+
+PlanningSup uses the `navigator.onLine` API to detect connectivity:
+
+```typescript
+import { useOnline } from '@vueuse/core'
+
+const isOnline = useOnline()
+
+watch(isOnline, (online) => {
+  if (!online) {
+    // Show offline toast
+  } else {
+    // Hide offline toast and refresh data
+  }
+})
+```
+
+The `useOnline()` composable from [VueUse](https://vueuse.org/core/useOnline/) listens to `online` and `offline` events on the `window` object.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Sync preferences" icon="cloud" href="/guide/sync-preferences">
+    Learn how to sync settings across devices
+  </Card>
+  <Card title="Browser extension" icon="puzzle-piece" href="/platforms/browser-extension">
+    Install the Chrome extension for quick access
+  </Card>
+</CardGroup>

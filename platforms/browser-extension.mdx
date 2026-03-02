@@ -1,0 +1,253 @@
+---
+title: Browser extension
+description: Install the PlanningSup Chrome extension for quick access from your browser toolbar
+---
+
+# Browser extension
+
+The PlanningSup browser extension provides a lightweight, always-accessible version of the calendar in your browser toolbar.
+
+## Installation
+
+The extension is available on the Chrome Web Store:
+
+<Card title="Install from Chrome Web Store" icon="chrome" href="https://chromewebstore.google.com/detail/planningsup/bcjhdlcgblcphljokeippholkfifdbod">
+  Compatible with Chrome, Edge, Brave, and other Chromium-based browsers
+</Card>
+
+<Info>
+  Firefox support is planned but not yet available. Use the web app or PWA instead.
+</Info>
+
+## Features
+
+The extension includes:
+
+<CardGroup cols={2}>
+  <Card icon="calendar">
+    **Full calendar views**
+    
+    Day, week, and month views in a popup or side panel
+  </Card>
+  <Card icon="palette">
+    **Synced preferences**
+    
+    Settings, colors, and filters sync with the web app
+  </Card>
+  <Card icon="bolt">
+    **Quick access**
+    
+    Click the toolbar icon to open your calendar instantly
+  </Card>
+  <Card icon="lock">
+    **Privacy-focused**
+    
+    No tracking or analytics in the extension
+  </Card>
+</CardGroup>
+
+## How it works
+
+The extension is a **popup** that embeds the PlanningSup web app in an iframe:
+
+```typescript
+// apps/extension/src/manifest.ts
+export default defineManifest({
+  name: 'PlanningSup',
+  version: '1.0.0',
+  manifest_version: 3,
+  action: {
+    default_popup: 'src/popup/index.html',
+    default_icon: 'icon-512.png',
+  },
+  permissions: ['storage'],
+  host_permissions: ['https://planningsup.app/*'],
+})
+```
+
+The popup (`src/popup/index.html`) loads the same Vue app as the web version, but with a fixed viewport optimized for the extension popup size.
+
+## Authentication in the extension
+
+Since extensions can't use OAuth redirects directly, PlanningSup uses a **message-passing flow**:
+
+<Steps>
+  <Step title="User clicks 'Sign in with Discord'">
+    The extension opens the OAuth URL in a new tab
+  </Step>
+  <Step title="User authorizes on Discord">
+    Discord redirects to `https://planningsup.app/auth-callback?code=...`
+  </Step>
+  <Step title="Web page sends message to extension">
+    The callback page uses `chrome.runtime.sendMessage()` to notify the extension
+  </Step>
+  <Step title="Extension completes authentication">
+    The extension background script exchanges the code for a session cookie
+  </Step>
+</Steps>
+
+```typescript
+// apps/web/src/composables/useAuth.ts
+if (IS_EXTENSION) {
+  const { default: browser } = await import('webextension-polyfill')
+  browser.runtime.onMessage.addListener(async (message: any) => {
+    if (message.type !== 'authCallback') return
+    
+    const callbackUrl = new URL(`${BACKEND_URL}/api/auth/callback/${message.provider}`)
+    callbackUrl.searchParams.set('code', message.code)
+    callbackUrl.searchParams.set('state', message.state)
+    callbackUrl.searchParams.set('client', 'extension')
+    
+    await fetch(callbackUrl, { credentials: 'include' })
+    window.location.reload()
+  })
+}
+```
+
+See `apps/web/src/composables/useAuth.ts:78-126` for the full implementation.
+
+<Warning>
+  Passkeys (WebAuthn) are **not supported** in the extension popup due to browser security restrictions. Use social login instead.
+</Warning>
+
+## Building the extension
+
+The extension is built using [WXT](https://wxt.dev/), a modern framework for browser extensions:
+
+```bash
+cd apps/extension
+bun install
+bun run build  # Output: .output/chrome-mv3/
+```
+
+The build process:
+1. Compiles Vue components with Vite
+2. Bundles background scripts and content scripts
+3. Copies static assets (icons, manifest)
+4. Generates a `.zip` file for Chrome Web Store submission
+
+### Manifest V3
+
+PlanningSup uses **Manifest V3**, the latest Chrome extension standard:
+
+```typescript
+// apps/extension/src/manifest.ts
+export default defineManifest({
+  manifest_version: 3,
+  permissions: ['storage'],
+  host_permissions: ['https://planningsup.app/*'],
+  action: {
+    default_popup: 'src/popup/index.html',
+  },
+  background: {
+    service_worker: 'src/background/main.ts',
+  },
+})
+```
+
+## Popup vs. side panel
+
+By default, PlanningSup opens as a **popup** (small window below the toolbar icon). You can also open it in a **side panel** for a larger view:
+
+<Steps>
+  <Step title="Right-click the extension icon">
+    In your browser toolbar
+  </Step>
+  <Step title="Select 'Open in side panel'">
+    (Chrome 114+ only)
+  </Step>
+</Steps>
+
+The side panel gives you more space to view the calendar while browsing other tabs.
+
+<Tip>
+  If your browser doesn't support side panels, you can open the extension in a new tab by right-clicking the icon and selecting "Open in new tab."
+</Tip>
+
+## Storage and sync
+
+The extension uses `chrome.storage.local` to persist settings:
+
+```typescript
+import { storage } from 'webextension-polyfill'
+
+// Save a setting
+await storage.local.set({ 'settings.colors': JSON.stringify(colors) })
+
+// Load a setting
+const { 'settings.colors': colorsJson } = await storage.local.get('settings.colors')
+```
+
+When you sign in, settings sync via the PlanningSup API (same as the web app).
+
+## Permissions
+
+The extension requests minimal permissions:
+
+- **`storage`**: To save your settings locally
+- **`host_permissions` for `planningsup.app`**: To communicate with the API
+
+No other permissions are required. The extension does not:
+- Access your browsing history
+- Read or modify web pages
+- Track your activity
+
+## Updating the extension
+
+The extension updates automatically via the Chrome Web Store. When a new version is available:
+
+1. Chrome downloads it in the background
+2. The extension reloads the next time you open it
+3. You may see a "PlanningSup has been updated" notification
+
+<Info>
+  Extension updates are independent of the web app. You can have different versions running simultaneously.
+</Info>
+
+## Limitations
+
+<Warning>
+  The extension has some limitations compared to the web app:
+  
+  - **No passkey support**: OAuth only
+  - **Fixed popup size**: Limited to ~400x600px (unless opened in a side panel or tab)
+  - **No PWA features**: No offline mode or install prompt
+</Warning>
+
+## Privacy
+
+The extension does not:
+- Track your usage
+- Send analytics
+- Access third-party APIs (except PlanningSup and your university's ICS feed)
+
+All data is stored locally or on the PlanningSup server (when signed in).
+
+## Uninstalling
+
+To remove the extension:
+
+<Steps>
+  <Step title="Open Chrome extensions">
+    Go to `chrome://extensions/` or click the puzzle icon → **Manage extensions**
+  </Step>
+  <Step title="Find PlanningSup">
+    Locate "PlanningSup" in the list
+  </Step>
+  <Step title="Click 'Remove'">
+    Confirm the removal
+  </Step>
+</Steps>
+
+Your settings remain synced on the server if you were signed in. You can reinstall the extension later without losing data.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Desktop & mobile" icon="mobile" href="/platforms/desktop-mobile">
+    Install native apps with Tauri
+  </Card>
+  <Card title="Web app" icon="globe" href="/platforms/web-app">
+    Learn about the full-featured web version
+  </Card>
+</CardGroup>

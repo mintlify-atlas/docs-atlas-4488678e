@@ -1,0 +1,305 @@
+---
+title: Plannings API
+description: List and retrieve university planning definitions
+---
+
+The Plannings API provides access to planning metadata and hierarchical structures.
+
+## List all plannings
+
+Retrieve the complete list of available university plannings.
+
+```bash
+GET /api/plannings
+```
+
+### Response
+
+Returns a nested object organized by host (university domain):
+
+```json
+{
+  "enscr": {
+    "title": "ENSCR",
+    "group": "Rennes",
+    "host": "enscr",
+    "children": [
+      {
+        "id": "cycleingenieur",
+        "fullId": "enscr.cycleingenieur",
+        "title": "Cycle Ingénieur",
+        "children": [
+          {
+            "id": "1iereanneeci",
+            "fullId": "enscr.cycleingenieur.1iereanneeci",
+            "title": "1ière année CI",
+            "children": [...]
+          }
+        ]
+      }
+    ]
+  },
+  "fac-de-sciences": {
+    "title": "Faculté des Sciences",
+    "group": "Rennes",
+    "host": "fac-de-sciences",
+    "children": [...]
+  }
+}
+```
+
+<ResponseField name="[host]" type="object">
+  Planning tree for a specific university.
+  
+  <Expandable title="Planning object fields">
+    <ResponseField name="title" type="string" required>
+      Display name of the university
+    </ResponseField>
+    
+    <ResponseField name="group" type="string" required>
+      Geographic grouping (usually city or region)
+    </ResponseField>
+    
+    <ResponseField name="host" type="string" required>
+      Unique host identifier
+    </ResponseField>
+    
+    <ResponseField name="children" type="array" required>
+      Nested planning groups and leaf plannings
+      
+      <Expandable title="Child object fields">
+        <ResponseField name="id" type="string" required>
+          ID within parent context
+        </ResponseField>
+        
+        <ResponseField name="fullId" type="string" required>
+          Dot-separated full ID (e.g., `enscr.cycleingenieur.1iereanneeci`)
+        </ResponseField>
+        
+        <ResponseField name="title" type="string" required>
+          Display name
+        </ResponseField>
+        
+        <ResponseField name="url" type="string">
+          ICS feed URL. Only present on leaf nodes (actual plannings).
+        </ResponseField>
+        
+        <ResponseField name="children" type="array">
+          Nested sub-groups (if not a leaf node)
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example request
+
+<CodeGroup>
+```bash cURL
+curl https://planningsup.app/api/plannings
+```
+
+```typescript TypeScript
+import { client } from '@libs/client'
+
+const response = await client.api.plannings.index.get()
+
+if (response.data) {
+  const plannings = response.data
+  console.log(Object.keys(plannings)) // ['enscr', 'fac-de-sciences', ...]
+}
+```
+
+```javascript JavaScript
+const response = await fetch('https://planningsup.app/api/plannings')
+const plannings = await response.json()
+
+console.log(plannings.enscr.title) // "ENSCR"
+```
+</CodeGroup>
+
+## Get planning by ID
+
+Retrieve a specific planning by its full ID.
+
+```bash
+GET /api/plannings/:fullId
+```
+
+### Path parameters
+
+<ParamField path="fullId" type="string" required>
+  Full planning ID with dot-separated hierarchy.
+  
+  **Example:** `enscr.cycleingenieur.1iereanneeci.elevesing1iereannee`
+</ParamField>
+
+### Query parameters
+
+<ParamField query="events" type="string" default="false">
+  Set to `"true"` to include calendar events in the response.
+  
+  ```bash
+  GET /api/plannings/enscr.elevesing1iereannee?events=true
+  ```
+  
+  When `false`, returns only planning metadata.
+</ParamField>
+
+### Response (without events)
+
+When `events=false` or omitted:
+
+```json
+{
+  "id": "elevesing1iereannee",
+  "fullId": "enscr.cycleingenieur.1iereanneeci.elevesing1iereannee",
+  "title": "Elèves Ing. 1ière année"
+}
+```
+
+<ResponseField name="id" type="string" required>
+  Planning ID (last segment of fullId)
+</ResponseField>
+
+<ResponseField name="fullId" type="string" required>
+  Complete dot-separated ID
+</ResponseField>
+
+<ResponseField name="title" type="string" required>
+  Display name
+</ResponseField>
+
+### Response (with events)
+
+When `events=true`, see the [Events API](/api/events) documentation for the complete response structure.
+
+### Example requests
+
+<CodeGroup>
+```bash Metadata only
+curl https://planningsup.app/api/plannings/enscr.elevesing1iereannee
+```
+
+```bash With events
+curl "https://planningsup.app/api/plannings/enscr.elevesing1iereannee?events=true"
+```
+
+```typescript TypeScript
+import { client } from '@libs/client'
+
+// Metadata only
+const info = await client.api.plannings[fullId].get()
+
+// With events
+const events = await client.api.plannings[fullId].get({
+  query: { events: 'true' }
+})
+```
+</CodeGroup>
+
+## Error responses
+
+### Planning not found
+
+```json
+{
+  "error": "Planning not found"
+}
+```
+
+**Status:** `404 Not Found`
+
+**Cause:** The specified `fullId` doesn't exist in the planning database.
+
+### Invalid full ID format
+
+If the `fullId` is malformed or empty, the API returns a generic error.
+
+## Understanding full IDs
+
+Full IDs are constructed by joining all parent IDs with dots:
+
+```
+[host].[level1].[level2].[...].[leafId]
+```
+
+**Example hierarchy:**
+
+```
+ENSCR (host: enscr)
+└─ Cycle Ingénieur (id: cycleingenieur)
+   └─ 1ière année CI (id: 1iereanneeci)
+      └─ Elèves Ing. 1ière année (id: elevesing1iereannee)
+```
+
+**Resulting full ID:**
+```
+enscr.cycleingenieur.1iereanneeci.elevesing1iereannee
+```
+
+## Use cases
+
+<Tabs>
+  <Tab title="Building a planning selector">
+    Fetch all plannings and render a hierarchical selector:
+    
+    ```typescript
+    const plannings = await client.api.plannings.index.get()
+    
+    // Render nested structure
+    function renderTree(node) {
+      if (node.url) {
+        // Leaf node - actual planning
+        return <option value={node.fullId}>{node.title}</option>
+      } else {
+        // Group node - render children
+        return (
+          <optgroup label={node.title}>
+            {node.children.map(renderTree)}
+          </optgroup>
+        )
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Checking if planning exists">
+    Verify a planning ID before fetching events:
+    
+    ```typescript
+    try {
+      const response = await client.api.plannings[fullId].get()
+      if (response.status === 200) {
+        console.log('Planning exists:', response.data.title)
+      }
+    } catch (error) {
+      console.error('Planning not found')
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Discovering available universities">
+    List all universities and their groups:
+    
+    ```typescript
+    const plannings = await client.api.plannings.index.get()
+    
+    for (const [host, data] of Object.entries(plannings.data)) {
+      console.log(`${data.title} (${data.group})`)
+      console.log(`  Available groups: ${data.children.length}`)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Events API" icon="calendar-days" href="/api/events">
+    Fetch calendar events from plannings
+  </Card>
+  <Card title="Adding universities" icon="plus" href="/developers/adding-universities">
+    Learn how to add new planning sources
+  </Card>
+</CardGroup>

@@ -1,0 +1,235 @@
+---
+title: Calendar views
+description: Master day, week, and month views with flexible navigation and keyboard shortcuts
+---
+
+# Calendar views
+
+PlanningSup offers four calendar views powered by [ScheduleX](https://schedule-x.dev/), each optimized for different use cases.
+
+## Available views
+
+<Tabs>
+  <Tab title="Day view">
+    Shows a single day with all events in a vertical timeline.
+    
+    **Best for:**
+    - Detailed view of today's schedule
+    - Mobile devices (default on small screens)
+    - Focusing on a specific day
+    
+    **Features:**
+    - Time grid from 7:00 AM to 8:00 PM (configurable)
+    - Full-width events for better readability
+    - Current time indicator
+  </Tab>
+  <Tab title="Week view">
+    Displays 5 or 7 days in a multi-column grid.
+    
+    **Best for:**
+    - Desktop and tablet users (default on large screens)
+    - Planning ahead for the current week
+    - Comparing schedules across days
+    
+    **Features:**
+    - Configurable to show weekends or hide them
+    - Responsive grid height (adapts to window size)
+    - Color-coded events by type
+  </Tab>
+  <Tab title="Month grid">
+    Shows the entire month in a traditional calendar grid.
+    
+    **Best for:**
+    - Long-term planning
+    - Identifying gaps in your schedule
+    - Viewing holidays and breaks
+    
+    **Features:**
+    - Week numbers displayed
+    - Compact event badges
+    - Click any day to see event details
+  </Tab>
+  <Tab title="Month agenda">
+    Lists all events for the month in a chronological agenda format.
+    
+    **Best for:**
+    - Scanning all upcoming events
+    - Exams and deadlines
+    - Dense schedules with many events
+  </Tab>
+</Tabs>
+
+## Switching views
+
+You can change the calendar view in two ways:
+
+1. **Click the view buttons** in the calendar controls toolbar
+2. **Use the dropdown menu** on mobile (tap the current view name)
+
+The app remembers your preferred view for each screen size:
+- Mobile devices default to **Day view**
+- Desktop and tablets default to **Week view**
+
+<Info>
+  Your view preference persists across sessions and is stored locally in your browser.
+</Info>
+
+## Navigation shortcuts
+
+PlanningSup supports keyboard navigation for power users:
+
+<CodeGroup>
+
+```text Keyboard shortcuts
+→  (Right arrow)  →  Next period (day/week/month)
+←  (Left arrow)   →  Previous period
+U                 →  Open planning picker
+Esc               →  Close dialogs
+```
+
+</CodeGroup>
+
+<Warning>
+  Keyboard shortcuts are disabled when you're typing in a text field or when a dialog is open.
+</Warning>
+
+## Current time indicator
+
+In **Day** and **Week** views, a red horizontal line shows the current time. This line updates automatically every minute.
+
+```typescript
+// apps/web/src/composables/usePlanningCalendar.ts
+import { createCurrentTimePlugin } from '@schedule-x/current-time'
+
+plugins: [
+  createCurrentTimePlugin(), // Red line at current time
+  // ...
+]
+```
+
+## Responsive grid height
+
+The calendar grid automatically adjusts to fit your browser window:
+
+```typescript
+// apps/web/src/composables/usePlanningCalendar.ts
+const uiOverhead = 64 + 47 + 68 // navbar + controls + header
+const minHeight = 500
+
+const responsiveGridHeight = computed(() => {
+  return Math.max(minHeight, windowHeight.value - uiOverhead)
+})
+```
+
+This ensures you see as many events as possible without scrolling excessively.
+
+## Day boundaries
+
+By default, the calendar displays events between **7:00 AM and 8:00 PM**. This focuses the view on typical university hours.
+
+```typescript
+// apps/web/src/composables/usePlanningCalendar.ts
+createCalendar({
+  dayBoundaries: { start: '07:00', end: '20:00' },
+  // ...
+})
+```
+
+Events outside these hours are still visible but may require scrolling.
+
+## Week options
+
+### Show or hide weekends
+
+In **Week view**, you can toggle weekend display:
+
+<Steps>
+  <Step title="Open settings">
+    Click the gear icon in the navbar or press `Ctrl+,` (if enabled)
+  </Step>
+  <Step title="Toggle weekends">
+    Enable **"Afficher les week-ends"** (Show weekends)
+  </Step>
+</Steps>
+
+This changes the week view from **5 days** (Mon-Fri) to **7 days** (Mon-Sun).
+
+```typescript
+// apps/web/src/composables/useSettings.ts
+const showWeekends = useLocalStorage<boolean>('settings.showWeekends', false)
+
+const weekNDays = computed(() => (showWeekends.value ? 7 : 5))
+```
+
+<Tip>
+  Most university schedules don't include weekend classes, so hiding them gives you more space for weekday events.
+</Tip>
+
+## Event duration summary
+
+Below the calendar controls, PlanningSup displays the **total hours** of events in the current view:
+
+```
+15h30m  (for the current week)
+```
+
+This calculation:
+- Sums all event durations in the visible range
+- Merges overlapping events to avoid double-counting
+- Updates automatically when you change views or navigate
+
+See the implementation in `apps/web/src/composables/usePlanningCalendar.ts:308-389`.
+
+## Jump to today
+
+Click **"Aujourd'hui"** (Today) in the calendar controls to instantly jump to the current date, regardless of which view you're in.
+
+```typescript
+// apps/web/src/composables/usePlanningCalendar.ts
+function goToToday() {
+  currentDate.value = Temporal.Now.zonedDateTimeISO(timezoneValue.value).toPlainDate()
+  calendarControls.setDate(currentDate.value)
+}
+```
+
+## Week numbers
+
+PlanningSup displays **ISO week numbers** in the month grid and week view header. This is useful for coordinating with syllabi that reference weeks (e.g., "Week 42").
+
+```typescript
+// apps/web/src/composables/usePlanningCalendar.ts
+createCalendar({
+  showWeekNumbers: true,
+  // ...
+})
+```
+
+## Mobile-optimized day view
+
+On small screens (< 768px), PlanningSup automatically:
+- Switches to **Day view** on first load
+- Uses full-width events (100% instead of 98%)
+- Hides week numbers for more space
+
+```typescript
+// apps/web/src/composables/usePlanningCalendar.ts
+function getWeekOptions() {
+  const view = currentView.value ?? preferredView.value
+  return {
+    nDays: settings.weekNDays.value,
+    gridHeight: responsiveGridHeight.value,
+    eventWidth: isSmallScreen.value && view === 'day' ? 100 : 98,
+  }
+}
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Customization" icon="palette" href="/guide/customization">
+    Change colors, filter events, and personalize your calendar
+  </Card>
+  <Card title="Offline mode" icon="wifi-slash" href="/guide/offline-mode">
+    Install the PWA for offline access
+  </Card>
+</CardGroup>

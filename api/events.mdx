@@ -1,0 +1,555 @@
+---
+title: Events API
+description: Fetch calendar events with filtering, timezone conversion, and offline support
+---
+
+The Events API retrieves calendar events from planning ICS feeds with advanced filtering, timezone support, and automatic offline fallback.
+
+## Get planning events
+
+Fetch calendar events for a specific planning.
+
+```bash
+GET /api/plannings/:fullId?events=true
+```
+
+<Note>
+This is the same endpoint as [Get planning by ID](/api/plannings#get-planning-by-id), but with `events=true` to include event data.
+</Note>
+
+### Path parameters
+
+<ParamField path="fullId" type="string" required>
+  Full planning ID with dot-separated hierarchy.
+  
+  **Example:** `enscr.cycleingenieur.1iereanneeci.elevesing1iereannee`
+</ParamField>
+
+### Query parameters
+
+<ParamField query="events" type="string" required>
+  Must be `"true"` to fetch events.
+</ParamField>
+
+<ParamField query="onlyDb" type="string" default="false">
+  Set to `"true"` to only fetch from database backup (skip network).
+  
+  Useful for offline scenarios or when you know the upstream source is down.
+  
+  ```bash
+  GET /api/plannings/:fullId?events=true&onlyDb=true
+  ```
+  
+  <Info>
+  Cannot be combined with date range filtering (`from`/`to`).
+  </Info>
+</ParamField>
+
+<ParamField query="from" type="string">
+  Start date for filtering events (ISO 8601 format: `YYYY-MM-DD`).
+  
+  **Default:** None (or 1 month ago if `to` is specified)
+  
+  **Maximum range:** 2 years between `from` and `to`
+  
+  ```bash
+  GET /api/plannings/:fullId?events=true&from=2026-01-01&to=2026-06-30
+  ```
+</ParamField>
+
+<ParamField query="to" type="string">
+  End date for filtering events (ISO 8601 format: `YYYY-MM-DD`).
+  
+  **Default:** None (or 2 years after `from` if specified)
+  
+  ```bash
+  GET /api/plannings/:fullId?events=true&to=2026-12-31
+  ```
+</ParamField>
+
+<ParamField query="blocklist" type="string">
+  Comma-separated list of keywords to filter out events.
+  
+  Case-insensitive matching against event summary.
+  
+  ```bash
+  GET /api/plannings/:fullId?events=true&blocklist=exam,test,contrôle
+  ```
+  
+  Events containing any of these keywords will be excluded from results.
+</ParamField>
+
+<ParamField query="highlightTeacher" type="string" default="false">
+  Set to `"true"` to enable teacher highlighting.
+  
+  Events missing teacher information will be tagged with `categoryId: "no-teacher"`.
+  
+  ```bash
+  GET /api/plannings/:fullId?events=true&highlightTeacher=true
+  ```
+  
+  <Info>
+  This feature uses heuristics specific to certain universities (IUT Nantes, IUT Vannes).
+  </Info>
+</ParamField>
+
+<ParamField query="browserTimezone" type="string">
+  Browser/source timezone (IANA timezone name).
+  
+  Used with `targetTimezone` for timezone conversion.
+  
+  **Example:** `Europe/Paris`, `America/New_York`
+  
+  <Note>
+  Can also be provided via `x-timezone` or `x-browser-timezone` headers.
+  </Note>
+</ParamField>
+
+<ParamField query="targetTimezone" type="string">
+  Target timezone for event times (IANA timezone name).
+  
+  Events will be converted from `browserTimezone` to `targetTimezone`.
+  
+  ```bash
+  GET /api/plannings/:fullId?events=true&browserTimezone=Europe/Paris&targetTimezone=America/New_York
+  ```
+  
+  <Note>
+  Can also be provided via `x-target-timezone` header.
+  </Note>
+</ParamField>
+
+## Response
+
+```json
+{
+  "id": "elevesing1iereannee",
+  "fullId": "enscr.cycleingenieur.1iereanneeci.elevesing1iereannee",
+  "title": "Elèves Ing. 1ière année",
+  "refreshedAt": 1709419845000,
+  "backupUpdatedAt": 1709419800000,
+  "status": "ok",
+  "source": "network",
+  "reason": null,
+  "events": [
+    {
+      "uid": "event-12345-67890",
+      "summary": "Cours de Mathématiques",
+      "startDate": "2026-03-02T08:00:00.000Z",
+      "endDate": "2026-03-02T10:00:00.000Z",
+      "location": "B101",
+      "description": "Prof. Dupont",
+      "categoryId": "lecture",
+      "remoteLocation": false
+    },
+    {
+      "uid": "event-12345-67891",
+      "summary": "TP Informatique",
+      "startDate": "2026-03-02T14:00:00.000Z",
+      "endDate": "2026-03-02T16:00:00.000Z",
+      "location": "À distance",
+      "description": "Groupe 1",
+      "categoryId": "lab",
+      "remoteLocation": true
+    }
+  ],
+  "nbEvents": 2
+}
+```
+
+### Response fields
+
+<ResponseField name="id" type="string" required>
+  Planning ID (last segment)
+</ResponseField>
+
+<ResponseField name="fullId" type="string" required>
+  Complete dot-separated ID
+</ResponseField>
+
+<ResponseField name="title" type="string" required>
+  Planning display name
+</ResponseField>
+
+<ResponseField name="refreshedAt" type="number | null" required>
+  Timestamp (milliseconds) when events were last fetched.
+  
+  - **Network source:** Current request time
+  - **Database source:** Last successful refresh time
+  - **None:** `null`
+</ResponseField>
+
+<ResponseField name="backupUpdatedAt" type="number | null" required>
+  Timestamp when database backup was last written.
+  
+  May differ from `refreshedAt` if events haven't changed.
+</ResponseField>
+
+<ResponseField name="status" type="string" required>
+  Overall fetch status:
+  - `"ok"` - Events successfully retrieved
+  - `"error"` - Failed to retrieve events
+</ResponseField>
+
+<ResponseField name="source" type="string" required>
+  Data source:
+  - `"network"` - Fetched from upstream ICS URL
+  - `"db"` - Retrieved from database backup (network failed or `onlyDb=true`)
+  - `"none"` - No data available
+</ResponseField>
+
+<ResponseField name="reason" type="string | null" required>
+  Reason for error/fallback:
+  - `null` - No issues
+  - `"network_error"` - Network fetch failed, using DB fallback
+  - `"no_data"` - No data available from any source
+  - `"empty_schedule"` - Planning has no events
+</ResponseField>
+
+<ResponseField name="events" type="array | null" required>
+  Array of calendar events, or `null` if no data available.
+  
+  <Expandable title="Event object fields">
+    <ResponseField name="uid" type="string" required>
+      Unique event identifier from ICS feed
+    </ResponseField>
+    
+    <ResponseField name="summary" type="string" required>
+      Event title/name
+    </ResponseField>
+    
+    <ResponseField name="startDate" type="string" required>
+      Event start time (ISO 8601 format)
+    </ResponseField>
+    
+    <ResponseField name="endDate" type="string" required>
+      Event end time (ISO 8601 format)
+    </ResponseField>
+    
+    <ResponseField name="location" type="string" required>
+      Event location (room, building, or "À distance" for remote)
+    </ResponseField>
+    
+    <ResponseField name="description" type="string" required>
+      Additional event details (teacher, notes, etc.)
+    </ResponseField>
+    
+    <ResponseField name="categoryId" type="string" required>
+      Auto-detected event category:
+      - `"lecture"` - Cours magistral (CM, amphi)
+      - `"tutorial"` - Travaux dirigés (TD)
+      - `"lab"` - Travaux pratiques (TP)
+      - `"no-teacher"` - Missing teacher info (when `highlightTeacher=true`)
+      - `"other"` - Other event types
+    </ResponseField>
+    
+    <ResponseField name="remoteLocation" type="boolean" required>
+      Whether the event is remote/distance learning
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="nbEvents" type="number" required>
+  Total number of events returned (after filtering)
+</ResponseField>
+
+## Example requests
+
+<CodeGroup>
+```bash Basic request
+curl "https://planningsup.app/api/plannings/enscr.elevesing1iereannee?events=true"
+```
+
+```bash With date range
+curl "https://planningsup.app/api/plannings/enscr.elevesing1iereannee?events=true&from=2026-03-01&to=2026-03-31"
+```
+
+```bash With blocklist
+curl "https://planningsup.app/api/plannings/enscr.elevesing1iereannee?events=true&blocklist=exam,contr%C3%B4le"
+```
+
+```bash Database only (offline)
+curl "https://planningsup.app/api/plannings/enscr.elevesing1iereannee?events=true&onlyDb=true"
+```
+
+```bash Timezone conversion
+curl "https://planningsup.app/api/plannings/enscr.elevesing1iereannee?events=true&browserTimezone=Europe/Paris&targetTimezone=America/New_York"
+```
+
+```typescript TypeScript
+import { client } from '@libs/client'
+
+const response = await client.api.plannings[fullId].get({
+  query: {
+    events: 'true',
+    from: '2026-03-01',
+    to: '2026-03-31',
+    blocklist: 'exam,test',
+    highlightTeacher: 'true',
+  }
+})
+
+if (response.data && response.data.events) {
+  for (const event of response.data.events) {
+    console.log(`${event.summary} (${event.categoryId})`)
+    console.log(`  ${event.startDate} - ${event.endDate}`)
+    console.log(`  Location: ${event.location}`)
+  }
+}
+```
+</CodeGroup>
+
+## Network-first strategy
+
+The API uses a network-first approach with database fallback:
+
+<Steps>
+  <Step title="Attempt network fetch">
+    Fetch ICS data from upstream URL
+  </Step>
+  
+  <Step title="On success">
+    - Parse events
+    - Return immediately
+    - Asynchronously write to database backup
+    - Mark refresh as successful
+  </Step>
+  
+  <Step title="On failure">
+    - Check database for backup
+    - Return cached events if available
+    - Enqueue refresh retry (for transient failures)
+    - Set `source: "db"` and `reason: "network_error"`
+  </Step>
+  
+  <Step title="No data available">
+    - Return `events: null`
+    - Set `source: "none"` and `reason: "no_data"`
+  </Step>
+</Steps>
+
+<Info>
+This ensures the API remains functional even when upstream ICS sources are temporarily unavailable.
+</Info>
+
+## Filtering and transformations
+
+### Blocklist filtering
+
+Events are excluded if their summary contains any blocklist keyword:
+
+```typescript
+const blocklist = ['exam', 'test', 'contrôle']
+
+// Excluded: "Exam de Mathématiques"
+// Excluded: "Test unitaire"
+// Included: "Cours de Mathématiques"
+```
+
+Matching is case-insensitive.
+
+### Category detection
+
+Events are automatically categorized based on heuristics:
+
+- **Lecture (CM):** Summary contains "CM" or "AMPHI"
+- **Lab (TP):** Summary contains "TP" followed by optional digits
+- **Tutorial (TD):** Summary contains "TD"
+- **No teacher:** Missing teacher info (when `highlightTeacher=true`)
+- **Other:** Default category
+
+### Location cleanup
+
+Locations are normalized:
+
+- "salle joker à distance" → "À distance"
+- "V-B101" → "B101"
+- Multiple locations separated by commas
+
+### Timezone conversion
+
+When both `browserTimezone` and `targetTimezone` are provided:
+
+1. Parse event times in source timezone
+2. Convert to target timezone
+3. Return adjusted times
+
+**Example:**
+- Event: 10:00-12:00 in `Europe/Paris`
+- Target: `America/New_York` (UTC-5)
+- Result: 04:00-06:00
+
+## Date range filtering
+
+### Client-side filtering
+
+When `from` and `to` are provided, events are filtered after parsing:
+
+```bash
+GET /api/plannings/:fullId?events=true&from=2026-03-01&to=2026-03-31
+```
+
+Only events starting on or after `from` and ending on or before `to` are returned.
+
+### Template URLs
+
+Some plannings use template URLs with date placeholders:
+
+```json
+{
+  "url": "https://example.com/export.ics?start={date-start}&end={date-end}"
+}
+```
+
+The API replaces placeholders:
+- `{date-start}` → `from` parameter (or 1 month ago)
+- `{date-end}` → `to` parameter (or 2 years ahead)
+
+<Warning>
+**Maximum range:** 2 years between `from` and `to`. Requests exceeding this return a 400 error.
+</Warning>
+
+## Error responses
+
+### Planning not found
+
+```json
+{
+  "error": "Planning not found"
+}
+```
+
+**Status:** `404 Not Found`
+
+### Invalid date range
+
+```json
+{
+  "error": "Invalid range dates"
+}
+```
+
+**Status:** `400 Bad Request`
+
+**Causes:**
+- Invalid date format (use `YYYY-MM-DD`)
+- Range exceeds 2 years
+- `from` is after `to`
+
+### Range with onlyDb
+
+```json
+{
+  "error": "Range filtering is only supported for network-first calls"
+}
+```
+
+**Status:** `400 Bad Request`
+
+**Cause:** Trying to use `from`/`to` with `onlyDb=true`. Database backups store full schedules and don't support range filtering.
+
+## Caching and performance
+
+### Request deduplication
+
+Concurrent requests for the same planning are coalesced into a single upstream fetch:
+
+```typescript
+// Multiple clients request the same planning simultaneously
+// Only one ICS fetch is performed
+await Promise.all([
+  fetch('/api/plannings/enscr.elevesing1iereannee?events=true'),
+  fetch('/api/plannings/enscr.elevesing1iereannee?events=true'),
+  fetch('/api/plannings/enscr.elevesing1iereannee?events=true'),
+])
+// → Single network request
+```
+
+### Background refresh
+
+When `RUN_JOBS=true`, background workers keep backups fresh:
+
+- **Backfill job:** Ensures all plannings have recent backups
+- **Refresh worker:** Retries failed fetches with exponential backoff
+
+See [Background jobs](/developers/environment-variables#background-jobs) for configuration.
+
+## Use cases
+
+<Tabs>
+  <Tab title="Display events in calendar">
+    Fetch events and render in a calendar UI:
+    
+    ```typescript
+    const response = await client.api.plannings[fullId].get({
+      query: { events: 'true' }
+    })
+    
+    if (response.data?.events) {
+      const events = response.data.events.map(event => ({
+        title: event.summary,
+        start: new Date(event.startDate),
+        end: new Date(event.endDate),
+        location: event.location,
+        category: event.categoryId,
+      }))
+      
+      calendar.renderEvents(events)
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Offline mode">
+    Gracefully handle offline scenarios:
+    
+    ```typescript
+    const response = await client.api.plannings[fullId].get({
+      query: { events: 'true', onlyDb: 'true' }
+    })
+    
+    if (response.data?.source === 'db') {
+      showBanner('Showing cached events (last updated: ...')
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Filter by keywords">
+    Hide exams and tests:
+    
+    ```typescript
+    const response = await client.api.plannings[fullId].get({
+      query: {
+        events: 'true',
+        blocklist: 'exam,test,contrôle,partiel',
+      }
+    })
+    ```
+  </Tab>
+  
+  <Tab title="Timezone conversion">
+    Convert events to user's local timezone:
+    
+    ```typescript
+    const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    
+    const response = await client.api.plannings[fullId].get({
+      query: {
+        events: 'true',
+        browserTimezone: 'Europe/Paris',
+        targetTimezone: userTz,
+      }
+    })
+    ```
+  </Tab>
+</Tabs>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Plannings API" icon="list" href="/api/plannings">
+    Learn how to list and retrieve plannings
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/developers/architecture">
+    Understand the offline-first design
+  </Card>
+</CardGroup>

@@ -1,0 +1,307 @@
+---
+title: Sync preferences
+description: Learn how cross-device synchronization works and manage your synced preferences
+---
+
+# Sync preferences
+
+When you sign in to PlanningSup, your settings and preferences automatically sync across all your devices. This is powered by a **local-first sync system** that uses last-write-wins conflict resolution.
+
+## What gets synced
+
+The following preferences sync across devices when you're signed in:
+
+<AccordionGroup>
+  <Accordion title="Selected plannings">
+    - Your currently selected planning(s)
+    - Custom planning groups (name + associated plannings)
+  </Accordion>
+  <Accordion title="Event filters">
+    - Blocklist (hidden event titles)
+    - Highlight teacher preference (dim events without teacher)
+  </Accordion>
+  <Accordion title="Display settings">
+    - Event colors (lecture, lab, tutorial, other)
+    - Show weekends in week view
+    - Merge duplicate events
+  </Accordion>
+  <Accordion title="UI preferences">
+    - Theme (light / dark / auto)
+    - Target timezone (if set)
+  </Accordion>
+</AccordionGroup>
+
+<Info>
+  View history (current date, selected view) is **not synced** — each device maintains its own navigation state.
+</Info>
+
+## How sync works
+
+### Local-first architecture
+
+PlanningSup uses a **local-first** approach where:
+
+1. **Local changes are immediate**: When you update a setting, it's saved to `localStorage` instantly
+2. **Background sync to server**: The change is debounced and pushed to the server in the background
+3. **Conflict resolution on login**: When you sign in on a new device, PlanningSup compares local and server timestamps using **last-write-wins**
+
+```typescript
+// apps/web/src/composables/useUserPrefsSync.ts
+const onSessionReady = async () => {
+  const localMeta = getLocalMeta()
+  const serverMeta = getServerMeta()
+  const localTs = localMeta[key] ?? 0
+  const serverTs = serverMeta[key] ?? 0
+
+  // Strategy 1: Server is newer. Adopt server value.
+  if (serverTs > localTs && serverRaw !== undefined) {
+    setLocalValue(fromServerToLocal(serverRaw))
+    setLocalMeta({ ...localMeta, [key]: serverTs })
+  } else {
+    // Strategy 2: Local is newer or tied. Push local value.
+    await pushToServer(localVal)
+  }
+}
+```
+
+See `apps/web/src/composables/useUserPrefsSync.ts:181-224` for the full implementation.
+
+### Timestamp-based conflict resolution
+
+Each preference has a **local timestamp** (stored in `localStorage`) and a **server timestamp** (stored in the database). When conflicts occur:
+
+- **Newer timestamp wins**: The most recently modified value is kept
+- **Local changes while offline**: If you modify settings while offline, they're pushed to the server when you reconnect
+- **Server changes while offline**: If another device updates the same setting, your device adopts the server value when you come online
+
+```typescript
+// apps/web/src/composables/useUserPrefsSync.ts
+watch(source, (newValue) => {
+  // Always keep a local "last modified" timestamp
+  if (!applyingServerValue) {
+    const localMeta = getLocalMeta()
+    setLocalMeta({ ...localMeta, [key]: Date.now() })
+  }
+  // Push to server after debounce
+  void pushToServer(newValue as T)
+})
+```
+
+The server replaces `__STAMP__` with an authoritative timestamp in `prefsMeta`:
+
+```json
+{
+  "theme": 1709654321000,
+  "colors": 1709654400000,
+  "blocklist": 1709654500000
+}
+```
+
+### Debounced sync
+
+To avoid excessive API calls, PlanningSup debounces sync requests:
+
+```typescript
+// apps/web/src/composables/useSettings.ts
+syncPref('colors', colors, {
+  toServer: v => encodeColorsToString(v),
+  normalizeLocal: v => normalizeColors(v),
+  normalizeServer: raw => parseAndNormalizeColors(raw),
+  fromServerToLocal: (raw) => parseAndNormalizeColors(raw),
+  setLocal: v => (colors.value = v),
+  debounce: 400, // Wait 400ms after last change
+})
+```
+
+Different preferences have different debounce times:
+- `highlightTeacher`: 10ms (instant)
+- `showWeekends`: 10ms (instant)
+- `blocklist`: 250ms (typing delay)
+- `colors`: 400ms (color picker delay)
+- `customGroups`: 50ms (fast updates)
+
+## Signing in for sync
+
+To enable cross-device sync, you need to sign in with a supported provider:
+
+<Tabs>
+  <Tab title="Discord">
+    <Steps>
+      <Step title="Click 'Sign in with Discord'">
+        In the user menu or welcome screen
+      </Step>
+      <Step title="Authorize PlanningSup">
+        Grant access to your Discord profile (we only read your username and avatar)
+      </Step>
+      <Step title="Sync starts automatically">
+        Your settings are pulled from the server and merged with local changes
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="GitHub">
+    <Steps>
+      <Step title="Click 'Sign in with GitHub'">
+        In the user menu or welcome screen
+      </Step>
+      <Step title="Authorize PlanningSup">
+        Grant access to your GitHub profile (we only read your username and avatar)
+      </Step>
+      <Step title="Sync starts automatically">
+        Your settings are pulled from the server and merged with local changes
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="Passkey (WebAuthn)">
+    <Steps>
+      <Step title="Sign in with Discord or GitHub first">
+        Passkeys can only be added to existing accounts
+      </Step>
+      <Step title="Open settings → Passkeys">
+        Click **"Add a passkey"**
+      </Step>
+      <Step title="Follow the browser prompt">
+        Use your device's biometric sensor or security key
+      </Step>
+      <Step title="Sign in with passkey">
+        On future visits, use the passkey for instant, passwordless login
+      </Step>
+    </Steps>
+    
+    <Warning>
+      Passkeys are only available on the **web version** (not extension or Tauri apps).
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Viewing synced data
+
+You can inspect your synced preferences in the browser console:
+
+```javascript
+// View local metadata (timestamps)
+JSON.parse(localStorage.getItem('userPrefsMeta'))
+
+// View a specific preference
+localStorage.getItem('settings.colors')
+localStorage.getItem('settings.blocklist')
+```
+
+On the server side, preferences are stored in the `user` table as JSON fields:
+
+```sql
+-- apps/api/src/db/schemas/auth.ts
+user: pgTable('user', {
+  theme: varchar('theme', { length: 10 }),
+  colors: text('colors'),
+  blocklist: text('blocklist'),
+  plannings: text('plannings'),
+  customGroups: text('custom_groups'),
+  prefsMeta: text('prefs_meta'), -- JSON: { theme: 1234567890, colors: 1234567890, ... }
+})
+```
+
+## Disabling sync
+
+If you want to use PlanningSup without syncing:
+
+<Steps>
+  <Step title="Don't sign in">
+    Use PlanningSup as a guest. All settings remain local.
+  </Step>
+  <Step title="Sign out to stop syncing">
+    Click your avatar → **"Déconnexion"** (Sign out)
+  </Step>
+</Steps>
+
+<Info>
+  Local changes made while signed out are **not lost**. When you sign in again, they're synced to the server if they're newer than the server values.
+</Info>
+
+## Multi-device workflow example
+
+### Scenario: Laptop and phone
+
+1. **On your laptop**:
+   - Select your planning and customize colors
+   - Sign in with Discord
+   - Settings sync to the server
+
+2. **On your phone**:
+   - Install the PWA
+   - Sign in with Discord
+   - Your planning and colors appear automatically
+
+3. **Make a change on your phone**:
+   - Add an event to the blocklist
+   - The change syncs to the server
+
+4. **Back on your laptop**:
+   - Refresh the page or wait for the next sync check
+   - The blocklist updates automatically
+
+## Sync edge cases
+
+### Both devices offline
+
+If you make changes on **Device A** while offline, then make different changes on **Device B** while offline, the **last device to come online** wins.
+
+<Warning>
+  This can result in data loss if both devices modify the same preference while offline. Consider this a limitation of last-write-wins conflict resolution.
+</Warning>
+
+### Race conditions
+
+If you rapidly switch between devices and make changes, the sync system may receive requests out of order. PlanningSup uses **optimistic locking** to avoid redundant requests:
+
+```typescript
+// apps/web/src/composables/useUserPrefsSync.ts
+const pushToServer = async (value: T) => {
+  const payloadValue = toServer(value)
+  // Avoid redundant API calls if value hasn't changed
+  if (jsonEqual(payloadValue, lastSynced.value)) return
+  lastSynced.value = payloadValue
+  await authClient.updateUser(payload)
+}
+```
+
+### Clearing server data
+
+To reset your synced preferences:
+
+<Steps>
+  <Step title="Sign out">
+    Click your avatar → **"Déconnexion"**
+  </Step>
+  <Step title="Clear local data">
+    Open browser settings → Clear site data for `planningsup.app`
+  </Step>
+  <Step title="Sign in again">
+    Your preferences reset to defaults (no server data exists)
+  </Step>
+</Steps>
+
+<Warning>
+  There is no "Delete account" feature yet. Signing out and clearing local data effectively resets your account to a blank state.
+</Warning>
+
+## Authentication system
+
+PlanningSup uses [Better Auth](https://better-auth.vercel.app/) for authentication, with the following features:
+
+- **OAuth 2.0**: Discord and GitHub providers
+- **Passkeys (WebAuthn)**: For passwordless login on supported browsers
+- **Session cookies**: Secure, HTTP-only cookies with automatic refresh
+- **Deep linking**: For Tauri and browser extension OAuth flows
+
+See `apps/web/src/composables/useAuth.ts` and `apps/api/src/utils/auth.ts` for the implementation.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Web app" icon="globe" href="/platforms/web-app">
+    Learn about the web version features
+  </Card>
+  <Card title="Desktop & mobile" icon="mobile" href="/platforms/desktop-mobile">
+    Install the Tauri-based native apps
+  </Card>
+</CardGroup>

@@ -1,0 +1,178 @@
+---
+title: API overview
+description: Introduction to the PlanningSup REST API for calendar data and authentication
+---
+
+The PlanningSup API provides programmatic access to university calendar data with offline support, authentication, and preferences synchronization.
+
+## Base URL
+
+All API endpoints are relative to your PlanningSup instance:
+
+<CodeGroup>
+```bash Official instance
+https://planningsup.app/api
+```
+
+```bash Self-hosted
+https://your-domain.com/api
+```
+
+```bash Local development
+http://localhost:20000/api
+```
+</CodeGroup>
+
+## Authentication
+
+The PlanningSup API supports two authentication methods:
+
+### No authentication (planning data)
+
+Most endpoints are public and don't require authentication:
+- `/api/plannings` - List all available plannings
+- `/api/plannings/:fullId` - Get planning details and events
+
+### BetterAuth (user preferences)
+
+When `AUTH_ENABLED=true`, authentication endpoints are available:
+- `/api/auth/*` - OAuth login, passkey registration, session management
+
+Authenticated requests include credentials via cookies or bearer tokens.
+
+### Operations token (admin endpoints)
+
+Admin endpoints require the `x-ops-token` header:
+
+```bash
+curl -H "x-ops-token: YOUR_OPS_TOKEN" \
+  https://planningsup.app/api/ops/plannings
+```
+
+<Warning>
+In production, `OPS_TOKEN` must be configured. Without a valid token, operations endpoints return 404.
+</Warning>
+
+## Response format
+
+All responses are JSON with consistent structure.
+
+### Success response
+
+```json
+{
+  "id": "elevesing1iereannee",
+  "fullId": "enscr.cycleingenieur.1iereanneeci.elevesing1iereannee",
+  "title": "Elèves Ing. 1ière année",
+  "refreshedAt": 1709419845000,
+  "backupUpdatedAt": 1709419800000,
+  "status": "ok",
+  "source": "network",
+  "reason": null,
+  "events": [...],
+  "nbEvents": 42
+}
+```
+
+### Error response
+
+```json
+{
+  "error": "Planning not found",
+  "message": "..."
+}
+```
+
+HTTP status codes indicate the error type:
+- `400` - Bad request (invalid parameters)
+- `404` - Resource not found
+- `429` - Rate limit exceeded
+- `500` - Internal server error
+
+## Rate limiting
+
+When authentication is enabled, BetterAuth applies rate limits:
+
+- **General endpoints**: 100 requests per 60 seconds
+- **Passkey endpoints**: 5 requests per 10 seconds
+
+Rate-limited responses include a `429` status and may include a `Retry-After` header.
+
+## CORS
+
+The API allows cross-origin requests from trusted origins configured via `TRUSTED_ORIGINS`.
+
+For self-hosted instances, configure your frontend origins:
+
+```bash
+TRUSTED_ORIGINS=https://your-frontend.com,https://app.your-domain.com
+```
+
+## API client
+
+For TypeScript projects, use the Eden Treaty client for type-safe requests:
+
+```typescript
+import { client } from '@libs/client'
+
+// Fully typed request and response
+const response = await client.api.plannings.index.get()
+
+if (response.data) {
+  // response.data is typed automatically
+  console.log(response.data)
+}
+```
+
+The client is available in `packages/libs/src/client/index.ts`.
+
+## Endpoints
+
+<CardGroup cols={2}>
+  <Card title="Plannings" icon="calendar" href="/api/plannings">
+    List and retrieve university calendar plannings
+  </Card>
+  <Card title="Events" icon="calendar-days" href="/api/events">
+    Fetch calendar events with filtering and timezone support
+  </Card>
+  <Card title="Authentication" icon="shield" href="/api/authentication">
+    OAuth, passkeys, and session management
+  </Card>
+</CardGroup>
+
+## Health check
+
+Verify API availability:
+
+```bash
+curl https://planningsup.app/api/ping
+```
+
+**Response:**
+```
+pong
+```
+
+This endpoint is used by Docker health checks and monitoring systems.
+
+## OpenAPI specification
+
+The API automatically generates OpenAPI documentation from route definitions.
+
+<Info>
+View the OpenAPI spec at `/api/openapi` (if enabled in your instance).
+</Info>
+
+## Next steps
+
+<CardGroup cols={3}>
+  <Card title="Plannings API" icon="list" href="/api/plannings">
+    Learn how to list and retrieve plannings
+  </Card>
+  <Card title="Events API" icon="calendar-days" href="/api/events">
+    Fetch and filter calendar events
+  </Card>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    Implement user authentication
+  </Card>
+</CardGroup>

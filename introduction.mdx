@@ -1,0 +1,99 @@
+---
+title: Welcome to PlanningSup
+description: A modern university calendar application with offline support, real-time sync, and multi-platform availability
+---
+
+<img
+  src="https://raw.githubusercontent.com/kernoeb/PlanningSup/main/apps/web/public/icon.png"
+  alt="PlanningSup Logo"
+  width="120"
+  height="120"
+/>
+
+# Welcome to PlanningSup
+
+PlanningSup is a modern Progressive Web App (PWA) that transforms your university ICS calendar into a beautiful, accessible interface. Built by [@kernoeb](https://github.com/kernoeb), it supports multiple French universities and engineering schools.
+
+## What makes PlanningSup special
+
+<CardGroup cols={2}>
+  <Card title="Offline-first PWA" icon="cloud-arrow-down">
+    Install on desktop or mobile and access your calendar without internet connection
+  </Card>
+  <Card title="Real-time sync" icon="arrows-rotate">
+    Automatic refresh on page load, window focus, and every 5 minutes in the background
+  </Card>
+  <Card title="Multi-platform" icon="window-restore">
+    Available as a web app, browser extension, and native desktop/mobile app via Tauri
+  </Card>
+  <Card title="Cross-device preferences" icon="arrow-up-right-from-square">
+    Sign in with Discord or GitHub to sync your settings, colors, and filters across all devices
+  </Card>
+</CardGroup>
+
+## Key features
+
+<Steps>
+  <Step title="Multiple calendar views">
+    Switch between day, week, and month views with keyboard shortcuts (arrow keys)
+  </Step>
+  <Step title="Event filtering and highlighting">
+    Block unwanted courses and highlight events with assigned teachers
+  </Step>
+  <Step title="Customizable color schemes">
+    Color-code by event type (lecture, lab, tutorial) or subject with light/dark theme support
+  </Step>
+  <Step title="Multi-planning support">
+    Combine multiple groups into a single unified calendar view
+  </Step>
+  <Step title="ICS calendar parsing">
+    Automatic parsing and refresh of ICS feeds from your university's scheduling system
+  </Step>
+</Steps>
+
+## Supported universities
+
+PlanningSup currently supports **25+ French universities and engineering schools**, including:
+
+- INSA Rennes
+- ISTIC (Université de Rennes)
+- IUT de Vannes, Rennes, Nantes, Saint-Malo
+- Polytech Nantes
+- ENSIBS, ENSSAT, ENSCR, ESIR
+- Nantes Université
+- Université Jean Monnet (Saint-Étienne)
+- And many more...
+
+<Info>
+If your university uses ICS calendars, you can [contribute](https://github.com/kernoeb/PlanningSup) by adding it to the `resources/plannings` directory.
+</Info>
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Set up your account and view your first calendar in under 2 minutes
+  </Card>
+  <Card title="Calendar views" icon="calendar-days" href="/guide/calendar-views">
+    Learn how to navigate and customize your calendar display
+  </Card>
+  <Card title="Customization" icon="palette" href="/guide/customization">
+    Personalize colors, filters, and event display preferences
+  </Card>
+  <Card title="Offline mode" icon="wifi-slash" href="/guide/offline-mode">
+    Install the PWA and access your calendar without internet
+  </Card>
+</CardGroup>
+
+## Open source
+
+PlanningSup is fully open source and built with modern web technologies:
+
+- **Frontend**: Vue 3 + Vite + DaisyUI (Tailwind CSS)
+- **Backend**: Elysia + Drizzle ORM + PostgreSQL
+- **Monorepo**: Bun workspaces
+- **Calendar engine**: ScheduleX
+
+<Card title="View on GitHub" icon="github" href="https://github.com/kernoeb/PlanningSup">
+  Star the repository, report issues, or contribute features
+</Card>
