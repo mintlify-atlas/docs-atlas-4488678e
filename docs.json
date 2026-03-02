@@ -71,7 +71,8 @@
               "api/overview",
               "api/plannings",
               "api/events",
-              "api/authentication"
+              "api/authentication",
+              "api/operations"
             ]
           }
         ]

@@ -1,0 +1,423 @@
+---
+title: Operations API
+description: Monitor system health and background job status
+---
+
+The Operations API provides health monitoring and diagnostics for the planning refresh system.
+
+<Warning>
+All operations endpoints require the `x-ops-token` header. In production, requests without a valid token return 404.
+</Warning>
+
+## Get planning system health
+
+Get comprehensive health status of the planning refresh system including queue statistics, backup coverage, and failure tracking.
+
+```bash
+GET /api/ops/plannings
+```
+
+### Headers
+
+<ParamField header="x-ops-token" type="string" required>
+  Operations token for admin access.
+  
+  Must match the `OPS_TOKEN` environment variable.
+  
+  ```bash
+  curl -H "x-ops-token: YOUR_OPS_TOKEN" \
+    https://planningsup.app/api/ops/plannings
+  ```
+</ParamField>
+
+### Response
+
+```json
+{
+  "status": "healthy",
+  "issues": [],
+  "workers": {
+    "backfill": "idle",
+    "refreshWorker": "working"
+  },
+  "inQuietHours": false,
+  "queue": {
+    "depth": 15,
+    "ready": 3,
+    "locked": 1
+  },
+  "backups": {
+    "total": 127,
+    "covered": 125,
+    "disabled": 2
+  },
+  "lastBackupWrite": {
+    "planningFullId": "enscr.elevesing1iereannee",
+    "changed": true,
+    "nbEvents": 42,
+    "at": "2026-03-02T10:30:00.000Z"
+  },
+  "failedHosts": [
+    {
+      "host": "fac-de-sciences",
+      "count": 2,
+      "lastFailure": "http_timeout"
+    }
+  ],
+  "recentFailures": [
+    {
+      "planningFullId": "fac-de-sciences.master.m1info",
+      "failureKind": "http_timeout",
+      "failures": 3,
+      "disabledUntil": "2026-03-02T11:00:00.000Z"
+    }
+  ]
+}
+```
+
+### Response fields
+
+<ResponseField name="status" type="string" required>
+  Overall system health status:
+  - `"healthy"` - All systems functioning normally
+  - `"degraded"` - Minor issues detected (see `issues` array)
+  - `"unhealthy"` - Critical issues requiring attention
+</ResponseField>
+
+<ResponseField name="issues" type="array" required>
+  List of detected health problems.
+  
+  Empty array when status is `"healthy"`.
+  
+  Example issues:
+  - `"Jobs not started"`
+  - `"Backfill stale (45m ago)"`
+  - `"Queue stuck: 100 ready but worker idle"`
+  - `"High disabled: 15/127 (12%)"`
+</ResponseField>
+
+<ResponseField name="workers" type="object" required>
+  Background worker states.
+  
+  <Expandable title="Worker fields">
+    <ResponseField name="backfill" type="string" required>
+      Backfill job state (ensures all plannings have recent backups):
+      - `"starting"` - Initializing
+      - `"idle"` - Waiting for next cycle
+      - `"working"` - Processing plannings
+      - `"paused"` - Manually paused
+      - `"quiet_hours"` - In quiet hours window
+      - `"stopped"` - Stopped
+      - `"crashed"` - Worker crashed
+      - `"unknown"` - State unavailable
+    </ResponseField>
+    
+    <ResponseField name="refreshWorker" type="string" required>
+      Refresh worker state (processes queue and retries failures):
+      - Same states as backfill worker
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="inQuietHours" type="boolean" required>
+  Whether the system is currently in quiet hours (reduced activity).
+  
+  Configured via `JOBS_QUIET_HOURS` (e.g., `21:00-06:00`).
+</ResponseField>
+
+<ResponseField name="queue" type="object" required>
+  Refresh queue statistics.
+  
+  <Expandable title="Queue fields">
+    <ResponseField name="depth" type="number" required>
+      Total items in queue (excluding exhausted retries)
+    </ResponseField>
+    
+    <ResponseField name="ready" type="number" required>
+      Items ready to be processed (unlocked and past next attempt time)
+    </ResponseField>
+    
+    <ResponseField name="locked" type="number" required>
+      Items currently being processed by workers
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="backups" type="object" required>
+  Backup coverage statistics.
+  
+  <Expandable title="Backup fields">
+    <ResponseField name="total" type="number" required>
+      Total number of plannings
+    </ResponseField>
+    
+    <ResponseField name="covered" type="number" required>
+      Number of plannings with database backups
+    </ResponseField>
+    
+    <ResponseField name="disabled" type="number" required>
+      Number of plannings temporarily disabled due to repeated failures
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="lastBackupWrite" type="object | null" required>
+  Information about the most recent backup write operation.
+  
+  `null` if no backups have been written yet.
+  
+  <Expandable title="Backup write fields">
+    <ResponseField name="planningFullId" type="string" required>
+      Full ID of the planning that was backed up
+    </ResponseField>
+    
+    <ResponseField name="changed" type="boolean" required>
+      Whether the backup data changed from the previous version
+    </ResponseField>
+    
+    <ResponseField name="nbEvents" type="number" required>
+      Number of events in the backup
+    </ResponseField>
+    
+    <ResponseField name="at" type="string" required>
+      Timestamp when the backup was written (ISO 8601 format)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="failedHosts" type="array | null" required>
+  Top 5 hosts with the most disabled plannings.
+  
+  `null` if no hosts have failures.
+  
+  <Expandable title="Failed host fields">
+    <ResponseField name="host" type="string" required>
+      Host name (e.g., `"enscr"`, `"fac-de-sciences"`)
+    </ResponseField>
+    
+    <ResponseField name="count" type="number" required>
+      Number of disabled plannings on this host
+    </ResponseField>
+    
+    <ResponseField name="lastFailure" type="string | null" required>
+      Most recent failure type:
+      - `"http_timeout"` - Network timeout
+      - `"http_4xx"` - Client error (planning likely doesn't exist)
+      - `"http_5xx"` - Server error
+      - `"parse_error"` - ICS parsing failed
+      - `"network_error"` - Other network error
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="recentFailures" type="array | null" required>
+  5 most recently failed plannings.
+  
+  `null` if no recent failures.
+  
+  <Expandable title="Recent failure fields">
+    <ResponseField name="planningFullId" type="string" required>
+      Full planning ID
+    </ResponseField>
+    
+    <ResponseField name="failureKind" type="string | null" required>
+      Type of failure (same values as `failedHosts.lastFailure`)
+    </ResponseField>
+    
+    <ResponseField name="failures" type="number" required>
+      Consecutive failure count
+    </ResponseField>
+    
+    <ResponseField name="disabledUntil" type="string | null" required>
+      When the planning will be re-enabled (ISO 8601 format).
+      
+      Uses exponential backoff: 5min, 15min, 1h, 4h, 12h, 24h (max)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example requests
+
+<CodeGroup>
+```bash cURL
+curl -H "x-ops-token: YOUR_OPS_TOKEN" \
+  https://planningsup.app/api/ops/plannings
+```
+
+```typescript TypeScript
+const response = await fetch('https://planningsup.app/api/ops/plannings', {
+  headers: {
+    'x-ops-token': process.env.OPS_TOKEN!
+  }
+})
+
+const health = await response.json()
+
+if (health.status === 'unhealthy') {
+  console.error('System unhealthy:', health.issues)
+}
+```
+
+```javascript JavaScript
+const response = await fetch('https://planningsup.app/api/ops/plannings', {
+  headers: {
+    'x-ops-token': process.env.OPS_TOKEN
+  }
+})
+
+const health = await response.json()
+console.log(`Status: ${health.status}`)
+console.log(`Queue depth: ${health.queue.depth}`)
+console.log(`Coverage: ${health.backups.covered}/${health.backups.total}`)
+```
+</CodeGroup>
+
+## Health status logic
+
+The API computes health status based on several checks:
+
+<Steps>
+  <Step title="Check if jobs are running">
+    If `RUN_JOBS=false` or jobs are paused, set status to degraded/unhealthy
+  </Step>
+  
+  <Step title="Check worker staleness">
+    - **Backfill worker:** Should run every `PLANNINGS_BACKFILL_INTERVAL_MS` (default: 10 minutes)
+    - **Refresh worker:** Should poll every `PLANNINGS_REFRESH_WORKER_MAX_POLL_MS` (default: 30 seconds)
+    
+    If either worker hasn't run in 2.5x its expected interval, mark as stale
+  </Step>
+  
+  <Step title="Check queue health">
+    If queue has many ready items but worker is idle, mark as stuck
+  </Step>
+  
+  <Step title="Check disabled percentage">
+    If more than 10% of plannings are disabled, mark as degraded
+  </Step>
+  
+  <Step title="Determine overall status">
+    - **Healthy:** No issues detected
+    - **Degraded:** Minor issues (high disabled percentage)
+    - **Unhealthy:** Critical issues (jobs not started, workers stale, queue stuck)
+  </Step>
+</Steps>
+
+## Error responses
+
+### Unauthorized
+
+```json
+{
+  "error": "NOT_FOUND"
+}
+```
+
+**Status:** `404 Not Found`
+
+**Causes:**
+- Missing `x-ops-token` header
+- Invalid ops token
+- `OPS_TOKEN` not configured (in production)
+
+<Info>
+In non-production environments without `OPS_TOKEN` set, the endpoint allows unauthenticated access for easier debugging.
+</Info>
+
+## Use cases
+
+<Tabs>
+  <Tab title="Monitoring dashboard">
+    Display system health in a monitoring UI:
+    
+    ```typescript
+    const health = await fetch('/api/ops/plannings', {
+      headers: { 'x-ops-token': token }
+    }).then(r => r.json())
+    
+    return (
+      <div>
+        <StatusBadge status={health.status} />
+        <Metric label="Queue depth" value={health.queue.depth} />
+        <Metric label="Ready" value={health.queue.ready} />
+        <Metric label="Coverage" 
+          value={`${health.backups.covered}/${health.backups.total}`} />
+        
+        {health.issues.length > 0 && (
+          <Alert severity="error">
+            <ul>
+              {health.issues.map(issue => <li>{issue}</li>)}
+            </ul>
+          </Alert>
+        )}
+      </div>
+    )
+    ```
+  </Tab>
+  
+  <Tab title="Alerting system">
+    Trigger alerts when system becomes unhealthy:
+    
+    ```typescript
+    async function checkHealth() {
+      const health = await fetch('/api/ops/plannings', {
+        headers: { 'x-ops-token': process.env.OPS_TOKEN }
+      }).then(r => r.json())
+      
+      if (health.status === 'unhealthy') {
+        await sendAlert({
+          title: 'PlanningSup system unhealthy',
+          message: health.issues.join(', '),
+          severity: 'critical'
+        })
+      }
+      
+      const disabledPercent = health.backups.disabled / health.backups.total
+      if (disabledPercent > 0.15) {
+        await sendAlert({
+          title: 'High planning failure rate',
+          message: `${health.backups.disabled}/${health.backups.total} plannings disabled`,
+          severity: 'warning'
+        })
+      }
+    }
+    
+    // Run every 5 minutes
+    setInterval(checkHealth, 5 * 60 * 1000)
+    ```
+  </Tab>
+  
+  <Tab title="Debugging failures">
+    Investigate planning failures:
+    
+    ```typescript
+    const health = await fetch('/api/ops/plannings', {
+      headers: { 'x-ops-token': process.env.OPS_TOKEN }
+    }).then(r => r.json())
+    
+    console.log('Failed hosts:')
+    for (const host of health.failedHosts || []) {
+      console.log(`  ${host.host}: ${host.count} failures (${host.lastFailure})`)
+    }
+    
+    console.log('\nRecent failures:')
+    for (const failure of health.recentFailures || []) {
+      console.log(`  ${failure.planningFullId}:`)
+      console.log(`    Kind: ${failure.failureKind}`)
+      console.log(`    Count: ${failure.failures}`)
+      console.log(`    Disabled until: ${failure.disabledUntil}`)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Environment variables" icon="gear" href="/developers/environment-variables">
+    Configure background jobs and operations
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/developers/architecture">
+    Learn about the refresh system design
+  </Card>
+</CardGroup>
